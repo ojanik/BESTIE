@@ -1,3 +1,3 @@
-from .build_model import build_model
+from .net_handler import net_handler
 from .build_jax import build_jax
 from .utilities import *
