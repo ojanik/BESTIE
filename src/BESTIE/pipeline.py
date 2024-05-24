@@ -2,6 +2,7 @@ import jax.numpy as jnp
 from jax import hessian
 from .utilities import parse_yaml
 from .nets import net_handler
+from .llh import llh_handler
 
 class Pipeline():
     def __init__(self,config_path):
@@ -18,7 +19,7 @@ class Pipeline():
         self.calc_data_hist = None
         self.calc_hist = None
         self.calc_loss = None
-        self.calc_llh = None
+        self.calc_llh = llh_handler(config)
 
     def get_pipeline(self, rebuild = False):
         if self.pipeline == None or rebuild:
