@@ -3,7 +3,8 @@ def llh_handler(config):
     method = config["llh_method"]
     llh = None
     if method.lower() == "poisson":
-        raise NotImplementedError("Poisson likelihood is not yet implemented")
+        from . import poisson_llh
+        llh = poisson_llh
     
     elif method.lower() == "say" or method.lower() == "effective":
         raise NotImplementedError("SAY likelihood is not yet implemented")
