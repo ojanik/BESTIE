@@ -1,6 +1,6 @@
 import tensorflow as tf
 import pandas as pd
-
+from tqdm import tqdm
 
 def make_parser():
     """Make the argument parser"""
@@ -37,8 +37,36 @@ def _int64_feature(value):
     """Returns an int64_list from a bool / enum / int / uint."""
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
+@tf.py_function(Tout=tf.string)
+def serialize_example(feature):
+  """
+  Creates a tf.train.Example message ready to be written to a file.
+  """
+  # Should be only floats in dataframe
+  for key in features.keys():
+      feature[key] = _float_feature(feature[key])
+  # Create a Features message using tf.train.Example.
+
+  example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
+  return example_proto.SerializeToString()
+
+
+
 def main(options):
-    print(options)
+
+    infile = options["input_file"]
+    df = pd.read_hdf(infile)
+
+    records = df.to_dict("records")
+    del(df)
+
+    outfile = options["output_file"]
+    with tf.io.TFRecordWriter(outfile) as writer:
+        for feature in tqdm(records):
+            example = serialize_example(feature)
+            writer.write(example.numpy())
+
+
 
 
 if __name__ == "__main__":
@@ -49,3 +77,4 @@ if __name__ == "__main__":
 
     main(options)
 
+    print("Done")
