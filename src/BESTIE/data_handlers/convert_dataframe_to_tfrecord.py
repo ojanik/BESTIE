@@ -37,7 +37,6 @@ def _int64_feature(value):
     """Returns an int64_list from a bool / enum / int / uint."""
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
-@tf.py_function(Tout=tf.string)
 def serialize_example(feature):
   """
   Creates a tf.train.Example message ready to be written to a file.
