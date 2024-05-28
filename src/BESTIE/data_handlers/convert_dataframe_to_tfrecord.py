@@ -63,7 +63,7 @@ def main(options):
     with tf.io.TFRecordWriter(outfile) as writer:
         for feature in tqdm(records):
             example = serialize_example(feature)
-            writer.write(example.numpy())
+            writer.write(example)
 
 
 
