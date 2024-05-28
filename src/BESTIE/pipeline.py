@@ -1,8 +1,10 @@
 import jax.numpy as jnp
 from jax import hessian
 from .utilities import parse_yaml
-from .nets import net_handler
+from .nets import model_handler
 from .llh import llh_handler
+from .hists import hist_handler
+from .losses import loss_handler
 
 class Pipeline():
     def __init__(self,config_path):
@@ -10,16 +12,16 @@ class Pipeline():
         self.pipeline = None
 
         self.data = None
+        self.sim_data = None
         self.aux = None
         self.injected_params = None
 
         self.calc_weights = None
-        model = net_handler(self.config)
+        model = model_handler(self.config)
         self.net = model()
-        self.calc_data_hist = None
-        self.calc_hist = None
-        self.calc_loss = None
-        self.calc_llh = llh_handler(config)
+        self.calc_hist = hist_handler(self.config)
+        self.calc_loss = loss_handler(self.config)
+        self.calc_llh = llh_handler(self.config)
 
     def get_pipeline(self, rebuild = False):
         if self.pipeline == None or rebuild:
