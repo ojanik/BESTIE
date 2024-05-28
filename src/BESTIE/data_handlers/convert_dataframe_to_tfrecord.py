@@ -43,7 +43,7 @@ def serialize_example(feature):
   Creates a tf.train.Example message ready to be written to a file.
   """
   # Should be only floats in dataframe
-  for key in features.keys():
+  for key in feature.keys():
       feature[key] = _float_feature(feature[key])
   # Create a Features message using tf.train.Example.
 
