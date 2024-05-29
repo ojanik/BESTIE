@@ -7,32 +7,8 @@ Array = jnp.array
 from functools import partial
 import jax
 
-class bKDE():
-    def __init__(self,observables,bandwidth):
-
-        if jnp.ndim(observables) != 1:
-            raise Exception("Observable must be 1 dimensional!")
-
-        self.observables = observables
-        self.bandwidth = bandwidth
-
-    def cdf(self,t,weights=None):
-        if weights is None:
-            weights = jnp.ones(len(self.observables))
-        cdf = ncdf(t,self.observables,self.bandwidth)
-        ccdf = (cdf*weights).sum()/weights.sum()
-        return ccdf
-    
-    def bin_kde(self,bins,weights=None):
-        def batch_cdf(t):
-            return bKDE.cdf(self,t,weights=weights)
-        edges = vmap(batch_cdf)(bins)
-        counts = edges[1:]-edges[:-1]
-        return counts
-    
-
 @partial(jax.jit, static_argnames=["density", "reflect_infinities"])
-def hist(
+def bKDE(
     data: Array,
     bins: Array,
     bandwidth: float,  # | None = None,
