@@ -1,6 +1,8 @@
 from .utilities import parse_yaml
-from .nets import model_handler
 from .llh import llh_handler
+from .weights import weight_handler
+
+
 from jax import jit
 
 class AnalysisPipeline():
@@ -10,6 +12,7 @@ class AnalysisPipeline():
 
         self.calc_data_hist = None
         self.calc_hist = None
+        self.calc_weights = weight_handler(self.config)
         self.calc_llh = llh_handler(self.config)
 
     def get_analysis_pipeline(self, rebuild = False):
