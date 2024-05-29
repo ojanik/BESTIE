@@ -1,6 +1,7 @@
 from .utilities import parse_yaml
 from .nets import model_handler
 from .llh import llh_handler
+from jax import jit
 
 class AnalysisPipeline():
     def __init__(self,config_path):
@@ -18,6 +19,8 @@ class AnalysisPipeline():
         return self._pipeline
 
     def _set_analysis_pipeline(self):
+
+        @jit
         def analysis_pipeline(injected_params,lss,aux,data_hist):
             weights = self.calc_weights(injected_params,aux)
             hist = self.calc_hist(lss,weights)
