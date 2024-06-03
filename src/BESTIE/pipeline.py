@@ -2,6 +2,8 @@ import jax.numpy as jnp
 from .utilities import parse_yaml
 from .nets import model_handler
 from .llh import llh_handler
+from .weights import weight_handler
+from .hists import hist_handler
 
 class AnalysisPipeline():
     def __init__(self,config_path):
@@ -12,12 +14,12 @@ class AnalysisPipeline():
         # self.aux = None REMOVE? 
         # self.injected_params = None REMOVE?
 
-        self.calc_weights = None
+        self.calc_weights = weight_handler(self.config)
         model = model_handler(self.config)
         self.net = model()
-        self.calc_data_hist = None
-        self.calc_hist = None
-        # self.calc_loss = None REMOVE
+        #self.calc_data_hist = None REMOVE?
+        self.calc_hist = hist_handler(self.config)
+        # self.calc_loss = None REMOVE?
         self.calc_llh = llh_handler(self.config)
 
     def get_analysis_pipeline(self, rebuild = False):
