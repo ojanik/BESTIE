@@ -1,6 +1,7 @@
 from .utilities import parse_yaml
 from .llh import llh_handler
 from .weights import weight_handler
+from .hists import hist_handler
 
 
 from jax import jit
@@ -10,8 +11,16 @@ class AnalysisPipeline():
         self.config = parse_yaml(config_path)
         self._pipeline = None
 
-        self.calc_data_hist = None
-        self.calc_hist = None
+        # self.data = None REMOVE?
+        # self.aux = None REMOVE? 
+        # self.injected_params = None REMOVE?
+
+        self.calc_weights = weight_handler(self.config)
+        model = model_handler(self.config)
+        self.net = model()
+        #self.calc_data_hist = None REMOVE?
+        self.calc_hist = hist_handler(self.config)
+        # self.calc_loss = None REMOVE?
         self.calc_weights = weight_handler(self.config)
         self.calc_llh = llh_handler(self.config)
 
