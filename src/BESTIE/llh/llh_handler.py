@@ -1,6 +1,6 @@
 
 def llh_handler(config):
-    method = config["llh_method"]
+    method = config["method"]
     llh = None
     if method.lower() == "poisson":
         from . import poisson_llh

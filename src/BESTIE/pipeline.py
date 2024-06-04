@@ -15,14 +15,13 @@ class AnalysisPipeline():
         # self.aux = None REMOVE? 
         # self.injected_params = None REMOVE?
 
-        self.calc_weights = weight_handler(self.config)
-        model = model_handler(self.config)
-        self.net = model()
+        self.calc_weights = weight_handler(self.config["weights"])
+        #model = model_handler(self.config) REMOVE?
+        #self.net = model()
         #self.calc_data_hist = None REMOVE?
-        self.calc_hist = hist_handler(self.config)
+        self.calc_hist = hist_handler(self.config["hists"])
         # self.calc_loss = None REMOVE?
-        self.calc_weights = weight_handler(self.config)
-        self.calc_llh = llh_handler(self.config)
+        self.calc_llh = llh_handler(self.config["llh"])
 
     def get_analysis_pipeline(self, rebuild = False):
         if self._pipeline == None or rebuild:
