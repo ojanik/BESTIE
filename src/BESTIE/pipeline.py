@@ -9,7 +9,7 @@ from jax import jit
 class AnalysisPipeline():
     def __init__(self,config_path):
         self.config = parse_yaml(config_path)
-        self._pipeline = None
+        self._analysis_pipeline = None
 
         # self.data = None REMOVE?
         # self.aux = None REMOVE? 
@@ -24,17 +24,17 @@ class AnalysisPipeline():
         self.calc_llh = llh_handler(self.config["llh"])
 
     def get_analysis_pipeline(self, rebuild = False):
-        if self._pipeline == None or rebuild:
-            self._analysis_pipeline = self._set_analysis_pipeline()
+        if self._analysis_pipeline == None or rebuild:
+            self._set_analysis_pipeline()
 
-        return self._pipeline
+        return self._analysis_pipeline
 
     def _set_analysis_pipeline(self):
 
         @jit
         def analysis_pipeline(injected_params,lss,aux,data_hist):
             weights = self.calc_weights(injected_params,aux)
-            hist = self.calc_hist(lss,weights)
+            hist = self.calc_hist(lss,weights=weights)
             llh = self.calc_llh(hist,data_hist)
 
             return llh
