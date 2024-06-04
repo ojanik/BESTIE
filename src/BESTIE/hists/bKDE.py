@@ -1,6 +1,5 @@
 
 import jax.numpy as jnp
-from jax import vmap
 from jax.scipy.stats.norm import cdf as ncdf
 import jax.scipy as jsp
 Array = jnp.array
@@ -43,6 +42,7 @@ def bKDE(
     # get cumulative counts (area under kde) for each set of bin edges
 
     cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=data, scale=bandwidth)
+    weights = weights.squeeze()
     cdf *= weights
     cdf /= weights.sum()
     # sum kde contributions in each bin
