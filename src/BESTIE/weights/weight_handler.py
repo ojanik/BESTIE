@@ -1,4 +1,4 @@
-form jax import vmap
+from jax import vmap
 
 def weight_handler(config):
     method = config["weighting"]["method"]
