@@ -30,4 +30,4 @@ class NNMFit_handler():
     def get_weight_function(self):
         if self._w_fn == None:
             NNMFit_handler._set_weight_function(self)
-        return self._w_fn
+        return self._w_fn.vm.jit_fn
