@@ -1,38 +1,13 @@
 
 import jax.numpy as jnp
-from jax import vmap
 from jax.scipy.stats.norm import cdf as ncdf
 import jax.scipy as jsp
 Array = jnp.array
 from functools import partial
 import jax
 
-class bKDE():
-    def __init__(self,observables,bandwidth):
-
-        if jnp.ndim(observables) != 1:
-            raise Exception("Observable must be 1 dimensional!")
-
-        self.observables = observables
-        self.bandwidth = bandwidth
-
-    def cdf(self,t,weights=None):
-        if weights is None:
-            weights = jnp.ones(len(self.observables))
-        cdf = ncdf(t,self.observables,self.bandwidth)
-        ccdf = (cdf*weights).sum()/weights.sum()
-        return ccdf
-    
-    def bin_kde(self,bins,weights=None):
-        def batch_cdf(t):
-            return bKDE.cdf(self,t,weights=weights)
-        edges = vmap(batch_cdf)(bins)
-        counts = edges[1:]-edges[:-1]
-        return counts
-    
-
 @partial(jax.jit, static_argnames=["density", "reflect_infinities"])
-def hist(
+def bKDE(
     data: Array,
     bins: Array,
     bandwidth: float,  # | None = None,
@@ -67,6 +42,7 @@ def hist(
     # get cumulative counts (area under kde) for each set of bin edges
 
     cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=data, scale=bandwidth)
+    weights = weights.squeeze()
     cdf *= weights
     cdf /= weights.sum()
     # sum kde contributions in each bin

@@ -1,0 +1,36 @@
+network:
+  framework: jax
+  input_size: 2
+  hidden_layers:
+    - layer: Dense
+      size: 27
+      activation: elu
+    - layer: Dense
+      size: 27
+      activation: elu
+    - layer: Dense
+      size: 27
+      activation: elu
+    - layer: Dense
+      size: 1
+      activation: sin
+
+
+llh:
+  method: poisson
+
+
+hists:
+  method: bKDE
+  bandwidth: 0.01
+  bins_low: -1
+  bins_up: 1
+  bins_number: 50
+
+
+weights:
+  method: nnm_fit
+  main_config: /home/saturn/capn/capn105h/software/NNMFit/examples/configs/main_SPL.cfg
+  analysis_config: /home/saturn/capn/capn105h/software/NNMFit/examples/configs/analysis_configs/asimov_SPL.yaml
+  override_configs: 
+  config_dir: /home/saturn/capn/capn105h/software/NNMFit/examples/configs
