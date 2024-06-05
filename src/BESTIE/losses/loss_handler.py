@@ -8,7 +8,7 @@ def loss_handler(config):
 
         optimality = config["optimality"]
 
-        if optimality.lower() in ["a","a_optimality","aoptimality"]
+        if optimality.lower() in ["a","a_optimality","aoptimality"]:
             from .fisher_losses import a_optimality
             opti = a_optimality
 
