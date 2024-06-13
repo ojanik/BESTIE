@@ -11,7 +11,7 @@ def weight_handler(config):
         handler = NNMFit_handler(config)
         w_nnm_fn = handler.get_weight_function()
         def w_fn(params,aux):
-            return w_nnm_fn(**params,**aux)[0]
+            return w_nnm_fn(**params,**aux)[0] * 1e5
         w_fn = vmap(w_fn,in_axes=(None,0))
 
     else:
