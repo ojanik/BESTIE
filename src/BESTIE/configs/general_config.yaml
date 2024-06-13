@@ -1,31 +1,13 @@
-network:
-  framework: jax
-  input_size: 2
-  hidden_layers:
-    - layer: Dense
-      size: 27
-      activation: elu
-    - layer: Dense
-      size: 27
-      activation: elu
-    - layer: Dense
-      size: 27
-      activation: elu
-    - layer: Dense
-      size: 1
-      activation: sin
-
-
 llh:
   method: poisson
 
 
 hists:
   method: bKDE
-  bandwidth: 0.01
+  bandwidth: 0.001
   bins_low: -1
   bins_up: 1
-  bins_number: 50
+  bins_number: 825
 
 
 weights:
@@ -34,3 +16,32 @@ weights:
   analysis_config: /home/saturn/capn/capn105h/software/NNMFit/examples/configs/analysis_configs/asimov_SPL.yaml
   override_configs: 
   config_dir: /home/saturn/capn/capn105h/software/NNMFit/examples/configs
+
+
+network:
+  framework: jax
+  input_size: 2
+  hidden_layers:
+    - layer: Dense
+      size: 128
+      activation: elu
+    - layer: Dense
+      size: 128
+      activation: elu
+    - layer: Dense
+      size: 1
+      activation: sin
+
+loss:
+  method: fisher
+  optimality: S
+
+training:
+  lr: 0.001
+  batch_size: 200000
+  optimizer: adam
+  epochs: 10
+
+rng: 187
+
+dataset_path: /home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/dataset.pt
