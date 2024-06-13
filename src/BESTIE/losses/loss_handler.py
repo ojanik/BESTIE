@@ -3,7 +3,7 @@
 
 def loss_handler(config):
 
-    loss_method = config["loss"]
+    loss_method = config["method"]
     if loss_method.lower() in ["fisher"]:
 
         optimality = config["optimality"]
