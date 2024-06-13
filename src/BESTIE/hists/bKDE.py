@@ -44,7 +44,7 @@ def bKDE(
     cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=data, scale=bandwidth)
     weights = weights.squeeze()
     cdf *= weights
-    cdf /= weights.sum()
+    #cdf /= weights.sum()
     # sum kde contributions in each bin
     counts = (cdf[1:, :] - cdf[:-1, :]).sum(axis=1)
 
