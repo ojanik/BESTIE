@@ -9,9 +9,11 @@ def loss_handler(config):
         optimality = config["optimality"]
 
         if optimality.lower() in ["a","a_optimality","aoptimality"]:
-            from .fisher_losses import a_optimality
-            opti = a_optimality
-
+            from .fisher_losses import A_optimality
+            opti = A_optimality
+        elif optimality.lower() in ["s","s_optimality","soptimality"]:
+            from .fisher_losses import S_optimality
+            opti = S_optimality
         else:
             raise NotImplementedError(f"The {optimality} method for optimality is not yet implemented")
         
