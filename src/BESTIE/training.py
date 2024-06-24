@@ -73,8 +73,11 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
     state = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
                                           tx=tx)
-    pipe = obj.get_optimization_pipeline()
 
+    pipe = obj.get_optimization_pipeline()
+    pipe = jit(pipe)
+
+    
 
     #training loop
 
