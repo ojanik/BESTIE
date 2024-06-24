@@ -100,6 +100,8 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
             history_steps.append(loss)
             pbar.set_description(f"loss: {loss:.9f}")
             running_loss += loss
+
+
         
         avg_loss = running_loss / len(dl)
         history.append(avg_loss)
@@ -138,7 +140,8 @@ if __name__ == "__main__":
     parser.add_argument('--config_path', type=str, help="Path to the config file")
     parser.add_argument('--output_dir', type=str, help="Path to the output directory")
     parser.add_argument('--name', type=str, help="Optional name")
+    parser.add_argument('--train_for_shape',action='store_true',help="If shape should be trained")
 
     args = parser.parse_args()
 
-    main(config_path=args.config_path, output_dir=args.output_dir, name=args.name)
+    main(config_path=args.config_path, output_dir=args.output_dir, name=args.name,train_for_shape=args.train_for_shape)
