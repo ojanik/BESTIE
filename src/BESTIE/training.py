@@ -106,39 +106,30 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
 
         tpbar.set_description(f"epoch loss: {avg_loss:.9f}")
 
-    result_dict = {}
-    result_dict["history"] = history 
-    result_dict["params"] = state.params
-    result_dict["history_steps"] = history_steps
+        result_dict["history"] = history 
+        result_dict["params"] = state.params
+        result_dict["history_steps"] = history_steps
 
-    from datetime import datetime
 
-    # Get the current date and time
-    now = datetime.now()
+        jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
 
-    # Format the date and time as a string
-    date_time_str = now.strftime("%Y-%m-%d_%H-%M-%S")
+        import yaml
 
-    save_dir = os.path.join(output_dir,name+"_"+date_time_str)
+        with open(os.path.join(save_dir,"config.yaml"), 'w') as file:
+            yaml.dump(config, file, default_flow_style=False)
 
-    os.makedirs(save_dir, exist_ok=True)
+        import matplotlib.pyplot as plt
 
-    jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
+        fig,ax = plt.subplots()
+        plt.grid(True)
+        ax.scatter(jnp.arange(len(history)),history)
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("loss")
+        ax.set_yscale("log")
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir,"loss_curve.png"),dpi=256)
 
-    import yaml
-
-    with open(os.path.join(save_dir,"config.yaml"), 'w') as file:
-        yaml.dump(config, file, default_flow_style=False)
-
-    import matplotlib.pyplot as plt
-
-    fig,ax = plt.subplots()
-    ax.scatter(jnp.arange(len(history)),history)
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("loss")
-    ax.set_yscale("log")
-    plt.grid(True)
-    plt.savefig(os.path.join(save_dir,"loss_curve.png"),dpi=256)
+        jax.profiler.save_device_memory_profile("memory.prof")    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some paths and an optional name.")
