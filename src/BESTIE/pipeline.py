@@ -3,7 +3,6 @@ from .llh import llh_handler
 from .weights import weight_handler
 from .hists import hist_handler
 
-
 from jax import jit
 import jax.numpy as jnp
 Array = jnp.array
@@ -65,6 +64,9 @@ class Optimization_Pipeline(AnalysisPipeline):
         @jit
         def optimization_pipeline(net_params,injected_params,data,aux):
             lss = self.net.apply({"params":net_params},data)[:,0]
+            #if self.config["network"]["hidden_layers"][-1]["activation"].lower() == "lin":
+            lss -= jnp.min(lss)
+            lss /= jnp.max(lss)
             data_hist = self.get_hist(lss,injected_params,aux)
             loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist)
 
