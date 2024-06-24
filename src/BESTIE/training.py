@@ -73,8 +73,6 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
     state = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
                                           tx=tx)
-    
-    asimov_func = obj.get_asimovhist_func()
     pipe = obj.get_optimization_pipeline()
 
 
