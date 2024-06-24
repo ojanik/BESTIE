@@ -9,8 +9,9 @@ import jax.numpy as jnp
 Array = jnp.array
 
 class AnalysisPipeline():
-    def __init__(self,config_path,injected_parameter_keys):
-        self.config = parse_yaml(config_path)
+    def __init__(self,config,injected_parameter_keys):
+        #self.config = parse_yaml(config_path)
+        self.config = config
         self.injected_parameter_keys = injected_parameter_keys
 
         self._analysis_pipeline = None
@@ -41,8 +42,8 @@ from .nets import model_handler
 from .losses import loss_handler
 
 class Optimization_Pipeline(AnalysisPipeline):
-    def __init__(self,config_path,injected_parameter_keys):
-        super().__init__(config_path,injected_parameter_keys)
+    def __init__(self,config,injected_parameter_keys):
+        super().__init__(config,injected_parameter_keys)
 
         self._optimization_pipeline = None
 

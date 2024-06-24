@@ -52,7 +52,7 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
 
     #setup train state
 
-    obj = BESTIE.Optimization_Pipeline(config_path,list(injected_params.keys()))
+    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
 
     rng = random.key(config["rng"])
     init_params = obj.net.init(rng,jnp.ones(config["network"]["input_size"]))["params"]
