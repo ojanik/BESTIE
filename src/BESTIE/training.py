@@ -43,9 +43,12 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
                    "CR_grad":Array(0.),
                    "delta_gamma":Array(0.)}
 
+
     #get dataset and dataloader
     ds = torch.load(config["dataset_path"])
     dl = DataLoader(ds,batch_size=config["training"]["batch_size"],num_workers=0,shuffle=True,drop_last=True)
+
+    config["weights"]["upscale"] = len(dl)
 
     #setup train state
 
