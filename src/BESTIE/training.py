@@ -57,7 +57,6 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
     rng = random.key(config["rng"])
     init_params = obj.net.init(rng,jnp.ones(config["network"]["input_size"]))["params"]
 
-    tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = config["training"]["lr"])
     if train_for_shape:
         print("--- Training for shape --")
         init_params = BESTIE.train_shape(obj.net,init_params,ds,config)
@@ -65,6 +64,11 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
         jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
 
     print(100*"-")
+
+    steps_per_epoch = len(dl)
+    lr = BESTIE.nets.lr_handler(config,steps_per_epoch)
+
+    tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr)
 
     state = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
