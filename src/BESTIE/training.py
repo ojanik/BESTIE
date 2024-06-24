@@ -93,9 +93,9 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
                 aux[key] = Array(aux[key])
 
             #data_hist = asimov_func(state.params,Array(list(injected_params.values())),data,aux)
-            for k in tqdm(range(50)):
-                loss, grads = value_and_grad(pipe)(state.params,Array(list(injected_params.values())),data,aux)
-                state = state.apply_gradients(grads=grads)
+            #for k in range(50):
+            loss, grads = value_and_grad(pipe)(state.params,Array(list(injected_params.values())),data,aux)
+            state = state.apply_gradients(grads=grads)
                 
             history_steps.append(loss)
             pbar.set_description(f"loss: {loss:.9f}")
