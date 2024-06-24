@@ -12,11 +12,29 @@ from tqdm import tqdm
 import argparse
 import os
 
+import jax
 
-def main(config_path,output_dir,name="unnamed"):
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
+def main(config_path,output_dir,name="unnamed",train_for_shape=False):
     
     config = BESTIE.utilities.parse_yaml(config_path)
 
+    from datetime import datetime
+
+    # Get the current date and time
+    now = datetime.now()
+
+    # Format the date and time as a string
+    date_time_str = now.strftime("%Y-%m-%d_%H-%M-%S")
+
+    save_dir = os.path.join(output_dir,name+"_"+date_time_str)
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    print(f"--- Results will be saved at {save_dir} ---")
+
+    result_dict = {}
 
     injected_params = {"astro_norm":Array(1.36),
                    "gamma_astro":Array(2.37),
