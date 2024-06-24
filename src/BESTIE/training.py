@@ -86,7 +86,7 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
         pbar = tqdm(enumerate(dl), total=len(dl))
-        for i,(data,aux) in pbar:
+        for i,(data,aux,_) in pbar:
             data = Array(data)
 
             for key in aux.keys():

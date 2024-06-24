@@ -6,16 +6,18 @@ import jax.numpy as jnp
 Array = jnp.array
 
 class SimpleDataset(Dataset):
-    def __init__(self,input_data):
+    def __init__(self,input_data,data):
+        
         self.input_data = input_data
+        self.data = data
 
         
         
     def __getitem__(self, idx):
         #data = {"reco_energy": self.data["energy_truncated"][idx],
         #       "reco_zenith": self.data["zenith_MPEFit"][idx]}
-        data = torch.tensor([self.input_data[:,0][idx],self.input_data[:,1][idx]])
-        
+        input_data = torch.tensor([self.input_data[:,0][idx],self.input_data[:,1][idx]])
+        data = torch.tensor([self.data[:,0][idx],self.data[:,1][idx]])
         aux = {"true_energy": self.input_data[:,2][idx],
                 'mceq_pr_H4a_SIBYLL23c': self.input_data[:,6][idx],
                 'mceq_pr_GST4_SIBYLL23c': self.input_data[:,7][idx],
@@ -23,11 +25,10 @@ class SimpleDataset(Dataset):
                 'mceq_conv_H4a_SIBYLL23c': self.input_data[:,4][idx],
                 'mceq_conv_GST4_SIBYLL23c':self.input_data[:,5][idx]}
         
-        return data, aux
+        return input_data, aux, data
     
     def __len__(self):
         return len(self.input_data)
-
 
 
 def create_input_data(df,varis,mask=None):
@@ -65,7 +66,10 @@ mask_zenith_range = (jnp.cos(Array(df["zenith_MPEFit"])) > -1) & (jnp.cos(Array(
 mask = mask & mask_energy_range & mask_zenith_range
 input_data = create_input_data(df,["energy_truncated","zenith_MPEFit","MCPrimaryEnergy",'powerlaw','mceq_conv_H4a_SIBYLL23c','mceq_conv_GST4_SIBYLL23c','mceq_pr_H4a_SIBYLL23c','mceq_pr_GST4_SIBYLL23c'],mask=mask)
 
+data = onp.stack([df["energy_truncated"],df["zenith_MPEFit"]],axis=1)
 
-ds = SimpleDataset(input_data[mask])
+ds = SimpleDataset(input_data[mask],data[mask])
 
 torch.save(ds,"/home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/dataset.pt")
+
+print("--- Saved dataset at /home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/dataset.pt")
