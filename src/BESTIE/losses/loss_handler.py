@@ -4,6 +4,7 @@
 def loss_handler(config):
 
     loss_method = config["method"]
+
     if loss_method.lower() in ["fisher"]:
 
         optimality = config["optimality"]
@@ -21,9 +22,9 @@ def loss_handler(config):
             raise NotImplementedError(f"The {optimality} method for optimality is not yet implemented")
         
         from jax import hessian
-        def loss(llh,injected_params,lss,aux,data_hist):
-            fish = hessian(llh)(injected_params,lss,aux,data_hist)
-            return opti(fish,signal_idx=[0,1]) #TODO implement signal_idx readout from config
+        def loss(llh,injected_params,lss,aux,data_hist,sample_weights):
+            fish = hessian(llh)(injected_params,lss,aux,data_hist,sample_weights)
+            return opti(fish,signal_idx=config["signal_idx"])
 
     else:
         raise NotImplementedError("The selected loss method is not implemented")
