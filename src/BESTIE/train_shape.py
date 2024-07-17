@@ -24,10 +24,9 @@ def calc_bin_idx(data):
 
 
 
-def train_shape(net,init_params,ds,config):
+def train_shape(net,init_params,dl,config):
     batch_size = config["training"]["batch_size"]
     #batch_size = 64
-    dl = DataLoader(ds,batch_size=batch_size,shuffle=True)
 
     def shape_loss(params,input_data,data):
         preds = net.apply({"params":params},input_data)[:,0]
@@ -50,7 +49,7 @@ def train_shape(net,init_params,ds,config):
     for j in (tpbar:= tqdm(range(5))):
         running_loss = 0
         pbar = tqdm(enumerate(dl), total=len(dl))
-        for i,(data,aux,real_data) in pbar:
+        for i,(data,aux,real_data,_) in pbar:
             data = Array(data)
             real_data = Array(real_data)
 
