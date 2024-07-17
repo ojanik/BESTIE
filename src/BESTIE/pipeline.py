@@ -74,7 +74,7 @@ class Optimization_Pipeline(AnalysisPipeline):
         self._optimization_pipeline = optimization_pipeline
 
     def get_lss(self, net_params,data):
-        lss = self.net.apply({"params":net_params},data)[:,0]
+        lss = self.net.apply({"params":net_params},data)#[:,0]
         return lss
     
     def get_loss(self,net_params,injected_params,data,aux,data_hist):
