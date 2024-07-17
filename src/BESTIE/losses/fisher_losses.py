@@ -15,8 +15,17 @@ def A_optimality(fisher,signal_idx=None):
     else:
         trace = 0
         for idx in signal_idx:
-            trace += diag[idx]
+            trace += diag.at[idx].get(mode='fill', fill_value=jnp.nan)
 
     loss = trace
 
     return loss
+
+def Matthias_loss(fisher,signal_idx=None):
+    cov = calc_conv(fisher)
+
+
+    sig_phi = 1.405
+    sig_gamma = 0.368
+
+    return cov[0,0]/sig_phi**2 + cov[1,1]/sig_gamma**2 + 2*cov[0,1]/(sig_phi*sig_gamma)
