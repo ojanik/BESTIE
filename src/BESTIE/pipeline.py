@@ -5,6 +5,7 @@ from .hists import hist_handler
 
 from jax import jit
 import jax.numpy as jnp
+import jax
 Array = jnp.array
 
 class AnalysisPipeline():
@@ -27,15 +28,30 @@ class AnalysisPipeline():
     def _set_analysis_pipeline(self):
 
         @jit
-        def analysis_pipeline(injected_params_values,lss,aux,data_hist):
-            injected_params = dict(zip(self.injected_parameter_keys,injected_params_values))
-            weights = self.calc_weights(injected_params,aux)
-            hist = self.calc_hist(lss,weights=weights)
+        def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None):
+            #injected_params = dict(zip(self.injected_parameter_keys,injected_params_values))
+            #weights = self.calc_weights(injected_params,aux)
+            #if sample_weights is not None:
+            #    sample_weights = jnp.reshape(sample_weights,weights.shape)
+            #    weights *= 1 / sample_weights
+            #hist = self.calc_hist(lss,weights=weights)
+            
+            hist = self.get_hist(lss,injected_params_values,aux,sample_weights)
+
             llh = self.calc_llh(data_hist,hist)
             llh = llh.sum() / self.config["hists"]["bins_number"]
             return llh
         self._analysis_pipeline = analysis_pipeline
 
+    def get_hist(self,lss,injected_params,aux,sample_weights=None):
+        injected_params = dict(zip(self.injected_parameter_keys,injected_params))
+        weights = self.calc_weights(injected_params,aux)
+        if sample_weights is not None:
+                sample_weights = jnp.reshape(sample_weights,weights.shape)
+                weights *= 1 / sample_weights
+        hist = self.calc_hist(lss, weights=weights)
+
+        return hist
 
 from .nets import model_handler
 from .losses import loss_handler
@@ -62,13 +78,10 @@ class Optimization_Pipeline(AnalysisPipeline):
 
     def _set_optimization_pipeline(self):
         @jit
-        def optimization_pipeline(net_params,injected_params,data,aux):
-            lss = self.net.apply({"params":net_params},data)[:,0]
-            #if self.config["network"]["hidden_layers"][-1]["activation"].lower() == "lin":
-            lss -= jnp.min(lss)
-            lss /= jnp.max(lss)
-            data_hist = self.get_hist(lss,injected_params,aux)
-            loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist)
+        def optimization_pipeline(net_params,injected_params,data,aux,sample_weights):
+            lss = self.net.apply({"params":net_params},data)
+            data_hist = self.get_hist(lss,injected_params,aux,sample_weights)
+            loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist,sample_weights)
 
             return loss
         self._optimization_pipeline = optimization_pipeline
@@ -82,14 +95,6 @@ class Optimization_Pipeline(AnalysisPipeline):
         loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist)
 
         return loss
-
-
-    def get_hist(self,lss,injected_params,aux):
-        injected_params = dict(zip(self.injected_parameter_keys,injected_params))
-        weights = self.calc_weights(injected_params,aux)
-        hist = self.calc_hist(lss, weights=weights)
-
-        return hist
     
     def get_asimovhist_func(self):
         def calc_asimovhist(net_params,injected_params,data,aux):
