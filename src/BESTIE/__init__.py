@@ -4,5 +4,5 @@ from . import utilities
 from . import llh
 from .pipeline import *
 #from .training import *
-from . import data_loaders
+from . import data
 from .train_shape import *
