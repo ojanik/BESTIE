@@ -3,7 +3,7 @@
 def lr_handler(config,steps_per_epoch):
     method = config["training"]["lr"]["method"]
 
-    if method.lower() in ["constant"]:
+    if method.lower() in ["constant","scalar"]:
         lr = config["training"]["lr"]["lr"]
 
     elif method.lower() in ["cosine","cos"]:
