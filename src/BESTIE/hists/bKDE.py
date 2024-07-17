@@ -8,12 +8,12 @@ import jax
 
 @partial(jax.jit, static_argnames=["density", "reflect_infinities"])
 def bKDE(
-    data: Array,
+    lss: Array,
     bins: Array,
     bandwidth: float,  # | None = None,
     weights: Array,
     density: bool = False,
-    reflect_infinities: bool = False,
+    reflect_infinities: bool = True,
 ) -> Array:
     """Differentiable histogram, defined via a binned kernel density estimate (bKDE).
 
@@ -36,12 +36,16 @@ def bKDE(
         1D array of bKDE counts.
     """
     # bandwidth = bandwidth or events.shape[-1] ** -0.25  # Scott's rule
+    #bw = jax.nn.sigmoid(lss[:,1])
+    lss = lss[:,0]
+    lss -= jnp.min(lss)
+    lss /= jnp.max(lss)
 
     bins = jnp.array([-jnp.inf, *bins, jnp.inf]) if reflect_infinities else bins
 
     # get cumulative counts (area under kde) for each set of bin edges
 
-    cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=data, scale=bandwidth)
+    cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=lss, scale=bandwidth)
     weights = weights.squeeze()
     cdf *= weights
     #cdf /= weights.sum()
