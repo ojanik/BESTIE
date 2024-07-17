@@ -1,0 +1,111 @@
+#
+# atmospheric
+#
+
+conv_norm:
+  range: [0.,null]
+  default: 1.02
+  class: Norm
+
+prompt_norm:
+  range: [0.,null]
+  default: 0.5
+  class: Norm
+
+delta_gamma:
+  range: [-1., 1.]
+  default:  0.
+  interpolate: False
+  class: DeltaGamma
+
+muon_norm:
+  range: [0, null]
+  default: 1.
+  class: Norm
+  prior: 1.
+  prior_width: 0.05
+
+CR_grad:
+  range: [-1.0, 2.0]
+  default: 0.
+  class: CRGrad
+  prior: 0.
+  prior_width: 1.
+
+barr_h:
+  range: [-0.8, 0.8]
+  default: 0.
+  class: BarrLinear
+  prior: 0.
+  prior_width: 0.15
+
+barr_y:
+  range: [-0.6, 0.6]
+  default: 0.
+  class: BarrLinear
+  prior: 0.
+  prior_width: 0.30
+
+barr_w:
+  range: [-0.6, 0.6]
+  default: 0.
+  class: BarrLinear
+  prior: 0.
+  prior_width: 0.40
+
+barr_z:
+  range: [-0.244, 0.6]
+  default: 0.
+  class: BarrLinear
+  prior: 0.
+  prior_width: 0.12
+
+#
+# astro
+#
+
+astro_norm:
+  default: 0.75
+  range: [0., null]
+  interpolate: False
+  class: Norm
+  additional:
+    per_type_norm: False
+
+gamma_astro:
+  default: 2.8
+  range: [1., null]
+  interpolate: False
+  class: SpectralIndex
+  additional:
+    reference_index: 2.0
+
+gamma_astro_first:
+  default: 2.9
+  range: [0., 4.]
+  interpolate: False
+  class: BrokenSpectralIndex
+  additional:
+    reference_index: 2.0
+    break_energy: &break_energy_point 7e4
+    n_component: first
+
+gamma_astro_second:
+  default: 2.3
+  range: [1.5, 4.]
+  interpolate: False
+  class: BrokenSpectralIndex
+  additional:
+    reference_index: 2.0
+    break_energy: *break_energy_point
+    n_component: second
+
+
+#
+# galactic
+#
+galactic_norm:
+  default: 1.
+  range: [0., null]
+  interpolate: False
+  class: Norm

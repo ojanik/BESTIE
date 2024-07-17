@@ -1,0 +1,71 @@
+#
+# atmospheric
+#
+
+conventional:
+  baseline_weights: &conv_base_weights mceq_conv_H4a_SIBYLL23c
+  #additional:
+  # hooks:
+  #     OscillationsHook:
+  #     spline_file: /data/ana/Diffuse/NNMFit/resources/oscillation_splines/old_9.5yr_NuCraft_OscillationProb.pickle
+  class: ConventionalAtmo
+  parameters: [conv_norm, delta_gamma, CR_grad, barr_h, barr_w, barr_z, barr_y]
+  param_specifications:
+    delta_gamma:
+      baseline_weights: *conv_base_weights
+    CR_grad:
+      baseline_weights: *conv_base_weights
+      alternative_weights: mceq_conv_GST4_SIBYLL23c
+    barr_h:
+      baseline_weights: *conv_base_weights
+      slope_per_event: barr_h_mceq_H4a_SIBYLL23c
+    barr_y:
+      baseline_weights: *conv_base_weights
+      slope_per_event: barr_y_mceq_H4a_SIBYLL23c
+    barr_w:
+      baseline_weights: *conv_base_weights
+      slope_per_event: barr_w_mceq_H4a_SIBYLL23c
+    barr_z:
+      baseline_weights: *conv_base_weights
+      slope_per_event: barr_z_mceq_H4a_SIBYLL23c
+
+
+prompt:
+  baseline_weights: &prompt_base_weights mceq_pr_H4a_SIBYLL23c
+  class: PromptAtmo
+  parameters: [prompt_norm, delta_gamma, CR_grad]
+  param_specifications:
+    delta_gamma:
+      baseline_weights: *prompt_base_weights
+    CR_grad:
+      baseline_weights: *prompt_base_weights
+      alternative_weights: mceq_pr_GST4_SIBYLL23c
+
+#
+# astro
+#
+
+astro:
+  baseline_weights: powerlaw
+  class: Powerlaw
+  parameters: [astro_norm, gamma_astro]
+  # hooks:
+  #     NuTauCorrectionRatioHook:
+  #     spline_file: /data/user/pfuerst/DiffuseExtensions/data/MC/nutau_nue_corrections/nutau_correction_IC86_pass2_fixedTauMC.pickle
+
+brokenastro_fixed:
+  baseline_weights: powerlaw
+  class: BrokenPowerlaw_fixedBreak
+  parameters: [astro_norm, gamma_astro_second, gamma_astro_first]
+
+
+
+#
+# galactic
+#
+galactictemplate_cringe_3d:
+  baseline_weights: powerlaw
+  class: GalacticTemplate
+  parameters: [galactic_norm]
+  additional:
+    template_file: /data/user/pfuerst/DiffuseExtensions/templates/galactic_hists/snowstorm_MC/combined_3D/Cringe_combined_tracks_45_33_180_cscd_21_3_18_muon_18_hybrid_11_1_18.pickle

@@ -1,0 +1,92 @@
+#
+# SnowStorm NuGen NuMu
+#
+
+SnowStorm_NuMu_lowE:
+  NeutrinoFlavor: NuMu
+  NEvents: !!int 200000
+  FromEnergy: !!float 100
+  ToEnergy:   !!float 10000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+SnowStorm_NuMu_midE:
+  NeutrinoFlavor: NuMu
+  NEvents: !!int 8000
+  FromEnergy: !!float 10000
+  ToEnergy:   !!float 1000000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+SnowStorm_NuMu_highE:
+  NeutrinoFlavor: NuMu
+  NEvents: !!int 300
+  FromEnergy: !!float 1000000
+  ToEnergy:   !!float 100000000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.0
+
+SnowStorm_NuMu_Nominal:
+  NeutrinoFlavor: NuMu
+  NEvents: !!int 20000
+  FromEnergy: !!float 100
+  ToEnergy:   !!float 100000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+#
+# SnowStorm NuGen NuE
+#
+
+SnowStorm_NuE_lowE:
+  NeutrinoFlavor: NuE
+  NEvents: !!int 120000
+  FromEnergy: !!float 100
+  ToEnergy:   !!float 10000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+SnowStorm_NuE_midE:
+  NeutrinoFlavor: NuE
+  NEvents: !!int 3000
+  FromEnergy: !!float 10000
+  ToEnergy:   !!float 1000000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+SnowStorm_NuE_highE:
+  NeutrinoFlavor: NuE
+  NEvents: !!int 100
+  FromEnergy: !!float 1000000
+  ToEnergy:   !!float 100000000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.0
+
+#
+# SnowStorm NuGen NuTau
+#
+
+SnowStorm_NuTau_lowE:
+  NeutrinoFlavor: NuTau
+  NEvents: !!int 220000
+  FromEnergy: !!float 100
+  ToEnergy:   !!float 10000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+SnowStorm_NuTau_midE:
+  NeutrinoFlavor: NuTau
+  NEvents: !!int 6000
+  FromEnergy: !!float 10000
+  ToEnergy:   !!float 1000000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.5
+
+SnowStorm_NuTau_highE:
+  NeutrinoFlavor: NuTau
+  NEvents: !!int 400
+  FromEnergy: !!float 1000000
+  ToEnergy:   !!float 100000000
+  InjectionMode: Surface
+  GammaIndex: !!float 1.0
+
