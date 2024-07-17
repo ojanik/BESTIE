@@ -1,12 +1,15 @@
 import jax.numpy as jnp
 
+def calc_conv(fisher):
+    return jnp.linalg.inv(fisher) *-1
+
 def S_optimality(fisher,signal_idx=[0]):
-    cov = -1 * jnp.linalg.inv(fisher)
+    cov = calc_conv(fisher)
     uncert = jnp.diag(cov)
     return uncert[signal_idx[0]]
 
 def A_optimality(fisher,signal_idx=None):
-    cov = -1 * jnp.linalg.inv(fisher)
+    cov = calc_conv(fisher)
     diag = jnp.diag(cov)
 
     if signal_idx == None:
