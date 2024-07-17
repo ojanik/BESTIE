@@ -1,0 +1,14 @@
+analysis_type: asimov
+llh: PoissonLLH
+detector_configs: [IC86_pass2_SnowStorm_example_tracks]
+input_params:
+  gamma_astro_first: 1.31
+  gamma_astro_second: 2.74
+  astro_norm: 1.36
+  prompt_norm: 0.0
+  conv_norm: 1.0
+  barr_h: 0.0
+  barr_w: 0.0
+  barr_y: 0.0
+  barr_z: 0.0
+  # all (other) nuisance parameters at default
