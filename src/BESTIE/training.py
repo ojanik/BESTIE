@@ -9,16 +9,19 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
+import yaml
+
 import argparse
 import os
 
-import jax
-
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-def main(config_path,output_dir,name="unnamed",train_for_shape=False):
-    
-    config = BESTIE.utilities.parse_yaml(config_path)
+def main(config,
+        output_dir,
+        name="unnamed",
+        train_for_shape=False,
+        sample=False,
+        no_trainstep_pbar=False):
 
     from datetime import datetime
 
@@ -36,37 +39,64 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
 
     result_dict = {}
 
-    injected_params = {"astro_norm":Array(1.36),
-                   "gamma_astro":Array(2.37),
-                   "prompt_norm":Array(1.),
-                   "conv_norm":Array(1.),
-                   "CR_grad":Array(0.),
-                   "delta_gamma":Array(0.)}
+    injected_params = config["injected_params"].copy()
+    for key in injected_params.keys():
+        injected_params[key] = Array(injected_params[key])
+
+    #get dataset and dataloader and sample_weights
+    #ds = torch.load(config["dataset_path"])
+
+    print("--------------------- Loading and preparing data ---------------------")
+    ds, sample_weights = BESTIE.data.make_torch_dataset(config["dataset"])
+
+    sampler = None
+    shuffle = True
+    drop_last = True
+
+    if sample:
+        from torch.utils.data import WeightedRandomSampler
+        #sample_weights = torch.load(config["sample_weights_path"])
+        sampler = WeightedRandomSampler(weights=sample_weights,num_samples=config["training"]["batch_size"],replacement=False)
+
+        assert len(ds) == len(sample_weights)
+
+        shuffle = False
+        drop_last = False
+    batches_per_epoch = 200#int(jnp.floor(len(ds)/config["training"]["batch_size"]))
+
+    dl = DataLoader(dataset=ds,
+                    batch_size=config["training"]["batch_size"],
+                    num_workers=0,
+                    shuffle=shuffle,
+                    drop_last=drop_last,
+                    sampler=sampler)
 
 
-    #get dataset and dataloader
-    ds = torch.load(config["dataset_path"])
-    dl = DataLoader(ds,batch_size=config["training"]["batch_size"],num_workers=0,shuffle=True,drop_last=True)
-
-    config["weights"]["upscale"] = len(dl)
+    config["weights"]["upscale"] = len(ds)/config["training"]["batch_size"]
 
     #setup train state
-
+    print(list(injected_params.keys()))
     obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
 
     rng = random.key(config["rng"])
-    init_params = obj.net.init(rng,jnp.ones(config["network"]["input_size"]))["params"]
+    init_params = obj.net.init(rng,jnp.ones(len(config["dataset"]["input_vars"])))["params"]
+
+    it_dl = dl
+
+    if sample:
+        it_dl = [list(dl)[0] for i in range(batches_per_epoch)]
 
     if train_for_shape:
         print("--- Training for shape --")
-        init_params = BESTIE.train_shape(obj.net,init_params,ds,config)
+        init_params = BESTIE.train_shape(obj.net,init_params,it_dl,config)
         result_dict["shape_params"] = init_params
         jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
 
-    print(100*"-")
+    ########################################################################################################################################
 
-    steps_per_epoch = len(dl)
-    lr = BESTIE.nets.lr_handler(config,steps_per_epoch)
+    print(100*"-")
+    
+    lr = BESTIE.nets.lr_handler(config,batches_per_epoch)
 
     tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr)
 
@@ -75,35 +105,41 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
                                           tx=tx)
 
     pipe = obj.get_optimization_pipeline()
-    pipe = jit(pipe)
+    #pipe = jit(pipe)
 
     
 
     #training loop
 
+    asimov_func = obj.get_asimovhist_func()
+
     history = []
     history_steps = []
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
-        pbar = tqdm(enumerate(dl), total=len(dl))
-        for i,(data,aux,_) in pbar:
-            data = Array(data)
 
+        
+
+        pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=no_trainstep_pbar)
+        for i,(data,aux,sample_weights) in pbar:
+            data = Array(data)
+            sample_weights = 1-(1-Array(sample_weights))**config["training"]["batch_size"] if sample else None
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
-            #data_hist = asimov_func(state.params,Array(list(injected_params.values())),data,aux)
-            #for k in range(50):
-            loss, grads = value_and_grad(pipe)(state.params,Array(list(injected_params.values())),data,aux)
+
+
+            loss, grads = value_and_grad(pipe)(state.params,Array(list(injected_params.values())),data,aux,sample_weights)  
+
             state = state.apply_gradients(grads=grads)
-                
+
             history_steps.append(loss)
             pbar.set_description(f"loss: {loss:.9f}")
             running_loss += loss
 
 
         
-        avg_loss = running_loss / len(dl)
+        avg_loss = running_loss / batches_per_epoch
         history.append(avg_loss)
 
         tpbar.set_description(f"epoch loss: {avg_loss:.9f}")
@@ -115,7 +151,6 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
 
         jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
 
-        import yaml
 
         with open(os.path.join(save_dir,"config.yaml"), 'w') as file:
             yaml.dump(config, file, default_flow_style=False)
@@ -127,21 +162,57 @@ def main(config_path,output_dir,name="unnamed",train_for_shape=False):
         ax.scatter(jnp.arange(len(history)),history)
         ax.set_xlabel("epoch")
         ax.set_ylabel("loss")
-        ax.set_yscale("log")
+        # ax.set_yscale("log")
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir,"loss_curve.png"),dpi=256)
+        plt.close()
 
-        jax.profiler.save_device_memory_profile("memory.prof")    
+        #jax.profiler.save_device_memory_profile("memory.prof")    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some paths and an optional name.")
     
     # Add arguments
     parser.add_argument('--config_path', type=str, help="Path to the config file")
+    parser.add_argument('--dataset_config_path', type=str, help="Path to the dataset config file")
     parser.add_argument('--output_dir', type=str, help="Path to the output directory")
     parser.add_argument('--name', type=str, help="Optional name")
     parser.add_argument('--train_for_shape',action='store_true',help="If shape should be trained")
-
+    parser.add_argument('--sample',action='store_true',help="If shape should be sampled")
+    parser.add_argument('--no_trainstep_pbar',action='store_true',help="Flag to disable a progress bar for each epoch")
+    parser.add_argument('--overrides',action="append",default=[])
     args = parser.parse_args()
 
-    main(config_path=args.config_path, output_dir=args.output_dir, name=args.name,train_for_shape=args.train_for_shape)
+
+    config = BESTIE.utilities.parse_yaml(args.config_path)
+
+    for override in args.overrides:
+        override_dict = BESTIE.utilities.parse_yaml(override)
+        config.update(override_dict)
+
+    config["dataset"] = BESTIE.utilities.parse_yaml(args.dataset_config_path)
+
+    main(config=config,
+            output_dir=args.output_dir, 
+            name=args.name,
+            train_for_shape=args.train_for_shape,
+            sample=args.sample,
+            no_trainstep_pbar=args.no_trainstep_pbar)
+
+    """wide_layer = {"layer":"Dense","size":1650,"activation":"relu"}
+
+    for i in range(5):
+        
+        
+        name = f"MSU_bkde_lin_{i}_wide_layers"
+        print(f"Now training {name}")
+        main(config=config, 
+            output_dir=args.output_dir, 
+            name=name,
+            train_for_shape=args.train_for_shape,
+            sample=args.sample,
+            no_trainstep_pbar=args.no_trainstep_pbar)
+        
+        config["network"]["hidden_layers"].insert(len(config["network"]["hidden_layers"])-1,wide_layer)"""
+        
+    print("DONE")
