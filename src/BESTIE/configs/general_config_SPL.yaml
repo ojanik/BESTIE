@@ -15,7 +15,7 @@ injected_params:
 
 hists:
   method: bkde
-  bandwidth: 0.005
+  bandwidth: 0.0006
   bins_low: 0
   bins_up: 1
   bins_number: 1650
@@ -34,19 +34,25 @@ network:
   input_size: 14
   hidden_layers:
     - layer: Dense
-      size: 850
+      size: 14
       activation: relu
     - layer: Dense
-      size: 1650
+      size: 28
       activation: relu
     - layer: Dense
-      size: 3300
+      size: 28
       activation: relu
     - layer: Dense
-      size: 3300
+      size: 52
       activation: relu
     - layer: Dense
-      size: 6600
+      size: 52
+      activation: relu
+    - layer: Dense
+      size: 104
+      activation: relu
+    - layer: Dense
+      size: 104
       activation: relu
     - layer: Dense
       size: 1
@@ -60,9 +66,9 @@ training:
   lr:
     lr: 0.3
     method: cos
-  batch_size: 5000
+  batch_size: 50000
   optimizer: sgd
-  epochs: 50
+  epochs: 300
 
 rng: 187
 

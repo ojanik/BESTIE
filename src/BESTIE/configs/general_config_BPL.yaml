@@ -59,13 +59,10 @@ loss:
 
 training:
   lr:
-    lr: 0.0003
+    lr: 0.0000003
     method: cos
   batch_size: 5000
   optimizer: sgd
-  epochs: 25
+  epochs: 50
 
 rng: 1871
-
-dataset_path: /home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/dataset_baselineMSU.pt
-sample_weights_path: /home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/bin_sample_weights_MSU.pt
