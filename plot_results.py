@@ -13,7 +13,6 @@ import argparse
 
 
 def main(model_path,
-         dataset_config,
          save_to=None,
          make_gif=False,
          make_weighted_hist=False,
@@ -22,29 +21,24 @@ def main(model_path,
          make_trainstep_loss_curve=False,
          all_flag=False):
 
-    # get configs
     path_to_config = os.path.join(model_path,"config.yaml")
     config = BESTIE.utilities.parse_yaml(path_to_config)
-    config_ds = BESTIE.utilities.parse_yaml(dataset_config)
 
-    #get injected parameters
-    injected_params = config["injected_params"]
-
-    #initialize optimization object
-    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
-
-    #get df path and load it
-    df_path = config_ds["dataframe"]
-    _,ext = os.path.splitext(df_path) #get the correct extension for reading in the dataframe (probably either hdf or parquet)
-    # TODO need to somehow catch multiple different extension like hd5
-    df = getattr(pd,f"read_{ext[1:].lower()}")(df_path)
-
-    input_data, mask_exists, mask_cut = BESTIE.data.prepare_data.create_input_data(df,config_ds)
-
-
+    model = BESTIE.nets.model_handler(config)
+    net = model()
+    dataframe = config["dataset"]["dataframe"]
+    _,ext = os.path.splitext(dataframe) #get the correct extension for reading in the dataframe (probably either hdf or parquet)
+    print("--- reading dataframe ---")
+    if ext[1:].lower() in ["parquet"]:
+        df = pd.read_parquet(dataframe)
+    elif ext[1:].lower() in ["hdf","hd5"]:
+        df = pd.read_hdf(dataframe)
+    print("--- creating input data and masks ---")
+    print("--- ignore warnings about dividing by zero, those events are filtered out in the end ---")
+    input_data, mask_exists, mask_cut = BESTIE.data.prepare_data.create_input_data(df,config["dataset"])
 
     aux = {}
-    for flux_var in config_ds["flux_vars"]:
+    for flux_var in config["dataset"]["flux_vars"]:
         dtemp = onp.array(df[flux_var])
         dtemp = dtemp[mask_exists&mask_cut]
         aux[flux_var] = dtemp
@@ -54,23 +48,19 @@ def main(model_path,
         print("Renamed key 'MCPrimaryEnergy' into 'true_energy'")
         aux["true_energy"] = aux.pop("MCPrimaryEnergy")
 
-    # get dict with losses and finals network params
     results_dict = jnp.load(os.path.join(model_path,"result.pickle.npy"),allow_pickle=True)
     params = results_dict.item()["params"]
 
-    # calculate the lss for the whole dataset
     batch_size = 10000
     num_parts = int(jnp.ceil(len(input_data)/batch_size))
-    apply = jit(obj.net.apply)
+    apply_fn = jit(net.apply)
+    print("--- Calculating lss ---")
     for i in tqdm(range(num_parts),disable=True):
         if i == 0:
-            lss = apply({"params": params},input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:14])[:,0]
+            lss = apply_fn({"params": params},input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:len(config["dataset"]["input_vars"])])[:,0]
         else:
-            lss = jnp.concatenate([lss,apply({"params": params},input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:14])[:,0]])
-
+            lss = jnp.concatenate([lss,apply_fn({"params": params},input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:len(config["dataset"]["input_vars"])])[:,0]])
     del(input_data)
-
-    mask = mask_exists&mask_cut
 
     #shift lss to be between 0 and 1 like it is done during training
     mask = mask_exists&mask_cut
@@ -79,6 +69,7 @@ def main(model_path,
     lss /= jnp.max(lss[mask][mask2])
 
     injected_params = config["injected_params"]
+    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
 
     if make_trainstep_loss_curve or all_flag:
         print("--- Making trainstep loss curve ---")
@@ -206,7 +197,6 @@ if __name__=="__main__":
     
     # Add arguments
     parser.add_argument('--model_path', type=str, required=True, help="Path to saved model")
-    parser.add_argument('--dataset_config', type=str, required=True, help="Path to dataset config")
 
     parser.add_argument('--make_trainstep_loss_curve',action='store_true',help="Flag if loss curve for each training step should be created")
     parser.add_argument('--make_2D_scatter',action='store_true',help="Flag if 2D scatter plot with the colors corresponding to the bin should be created")
@@ -224,7 +214,6 @@ if __name__=="__main__":
     args = parser.parse_args()
 
     main(model_path=args.model_path,
-         dataset_config=args.dataset_config,
          save_to=args.save_to,
          make_gif=args.make_gif,
          make_weighted_hist=args.make_weighted_hist,
