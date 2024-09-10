@@ -1,0 +1,54 @@
+dataframe: /home/saturn/capn/capn105h/data/IceCube/simulation/NNMFit_dataframes/dataset_baselineMSU_w_galactic_coords.parquet
+
+additional_kwargs:
+  - lss0
+
+kwargs_values:
+  lss0: lss0_standard_binning
+
+input_vars:
+  - var_name: energy_truncated
+    scale: log
+    transform: standard
+  - var_name: zenith_MPEFit
+    scale: cos
+    transform: standard
+  #- var_name: ra_MPEFit
+  #  standardize: True
+
+fourier_feature_mapping:
+  method: none
+  mapping_size: 256
+  scale: 100.
+
+exists_vars:
+  - reco_dir_exists
+  - energy_truncated_exists
+
+cut_vars:
+  - var_name: energy_truncated
+    min: 100
+    max: 10000000
+  - var_name: zenith_MPEFit
+    min: 1.483485438
+    max: 3.141592654
+
+flux_vars:
+  - MCPrimaryEnergy
+  - cringe_baseline
+  - powerlaw
+  - mceq_conv_H4a_SIBYLL23c
+  - mceq_conv_GST4_SIBYLL23c
+  - mceq_pr_H4a_SIBYLL23c
+  - mceq_pr_GST4_SIBYLL23c
+  - barr_h_mceq_H4a_SIBYLL23c
+  - barr_w_mceq_H4a_SIBYLL23c
+  - barr_z_mceq_H4a_SIBYLL23c
+  - barr_y_mceq_H4a_SIBYLL23c
+
+sample_weights:
+  method: bin
+  vars:
+    - energy_truncated
+    - ...
+
