@@ -108,9 +108,9 @@ def main(config,
 
     print(100*"-")
     
-    lr = BESTIE.nets.lr_handler(config,batches_per_epoch)
+    lr_fn = BESTIE.nets.lr_handler(config,batches_per_epoch)
 
-    tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr)
+    tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr_fn)
 
     state = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
@@ -122,8 +122,6 @@ def main(config,
     
 
     #training loop
-
-    asimov_func = obj.get_asimovhist_func()
 
     history = []
     history_steps = []
