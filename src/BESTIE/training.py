@@ -210,16 +210,26 @@ def main(config,
 
         fig,ax = plt.subplots()
         plt.grid(True)
-        ax.scatter(jnp.arange(len(history)),history)
+
+        ax2 = ax.twinx()
+
+        ax.scatter(jnp.arange(len(history)),history,color="blue",label="loss")
+        ax2.scatter(jnp.arange(len(history)),lr_epochs,color="red",label="lr")
+        ax2.set_ylabel("lr")
         ax.set_xlabel("epoch")
         ax.set_ylabel("loss")
-        # ax.set_yscale("log")
+        ax.set_yscale("log")
         plt.tight_layout()
+        plt.legend()
         plt.savefig(os.path.join(save_dir,"loss_curve.png"),dpi=256)
         plt.close()
 
         #jax.profiler.save_device_memory_profile("memory.prof")    
 
+        run_inference = False
+
+        if run_inference:
+            print("-- Running inference for the whole dataset ---")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some paths and an optional name.")
     
@@ -232,6 +242,7 @@ if __name__ == "__main__":
     parser.add_argument('--sample',action='store_true',help="If shape should be sampled")
     parser.add_argument('--no_trainstep_pbar',action='store_true',help="Flag to disable a progress bar for each epoch")
     parser.add_argument('--overrides',action="append",default=[])
+    #parser.add_argument('--average_gradients',action='store_true',help="Flag to toggle averaging of gradients over an epoch instead of applying it after every train step")
     args = parser.parse_args()
 
 
