@@ -125,13 +125,14 @@ def main(config,
 
     history = []
     history_steps = []
+    lr_epochs = []
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
 
         
 
         pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=no_trainstep_pbar)
-        for i,(data,aux,sample_weights) in pbar:
+        for i,(data,aux,sample_weights,kwargs) in pbar:
             data = Array(data)
             
             data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
@@ -139,12 +140,31 @@ def main(config,
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
+            for key in kwargs.keys():
+                kwargs[key] = Array(kwargs[key])
 
+            kwargs["phi0"] = obj.net.apply({"params":init_params},data)[:,0]
 
-            loss, grads = value_and_grad(pipe)(state.params,Array(list(injected_params.values())),data,aux,sample_weights)  
+            #print(kwargs)
+            #quit()
 
-            state = state.apply_gradients(grads=grads)
+            """lss = obj.get_lss(state.params,data)
 
+            hist = obj.get_hist(lss,Array(list(injected_params.values())),aux,sample_weights=sample_weights)
+
+            print(hist.sum())
+            continue"""
+
+            #ap = obj.get_analysis_pipeline()
+            #llh = ap(Array(list(injected_params.values())),lss,aux,hist)
+            #print(llh)
+
+            loss, grads = value_and_grad(pipe)(state.params,
+                                               injected_params=Array(list(injected_params.values())),
+                                               data=data,
+                                               aux=aux,
+                                               sample_weights=sample_weights,
+                                               **kwargs)
             history_steps.append(loss)
             pbar.set_description(f"loss: {loss:.9f}")
             running_loss += loss
