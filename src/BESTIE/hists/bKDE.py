@@ -37,9 +37,9 @@ def bKDE(
     """
     # bandwidth = bandwidth or events.shape[-1] ** -0.25  # Scott's rule
     #bw = jax.nn.sigmoid(lss[:,1])
-    lss = lss[:,0]
-    lss -= jnp.min(lss)
-    lss /= jnp.max(lss)
+    #lss = lss[:,0]
+    #lss -= jnp.min(lss)
+    #lss /= jnp.max(lss)
 
     bins = jnp.array([-jnp.inf, *bins, jnp.inf]) if reflect_infinities else bins
 
