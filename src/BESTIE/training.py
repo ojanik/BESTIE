@@ -135,8 +135,9 @@ def main(config,
         pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=no_trainstep_pbar)
         for i,(data,aux,sample_weights) in pbar:
             data = Array(data)
-            sample_weights = 1-(1-Array(sample_weights))**config["training"]["batch_size"] if sample else None
+            
             data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
+            sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
