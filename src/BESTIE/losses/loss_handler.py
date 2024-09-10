@@ -22,9 +22,16 @@ def loss_handler(config):
             raise NotImplementedError(f"The {optimality} method for optimality is not yet implemented")
         
         from jax import hessian
-        def loss(llh,injected_params,lss,aux,data_hist,sample_weights):
-            fish = hessian(llh)(injected_params,lss,aux,data_hist,sample_weights)
+        def loss(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
+            fish = hessian(llh)(injected_params,lss,aux,data_hist,sample_weights,**kwargs)
             return opti(fish,signal_idx=config["signal_idx"])
+
+    elif loss_method.lower() in ["scan"]:
+        raise NotImplementedError("Scan loss is currently not fully implemented")
+        from .scan_loss import calc_scan_loss
+
+        def loss(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
+            return calc_scan_loss(llh,injected_params,lss,aux,data_hist,sample_weights,scan_parameter_idx=config["signal_idx"],**kwargs)
 
     else:
         raise NotImplementedError("The selected loss method is not implemented")
