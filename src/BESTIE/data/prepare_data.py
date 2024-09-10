@@ -24,8 +24,16 @@ def create_input_data(df,config):
         if "scale" in vari:
             dtemp = getattr(onp, vari["scale"])(dtemp)
 
-        if vari["standardize"]:
+        if "standardize" in vari:
+            print("The standardize key in the dataset config is deprecated, please use transform")
             dtemp = (dtemp-onp.mean(dtemp[mask]))/onp.std(dtemp[mask])
+
+        if vari["transform"] in ["standardize"]:
+            dtemp = (dtemp-onp.mean(dtemp[mask]))/onp.std(dtemp[mask])
+
+        elif vari["transform"] in ["sphere"]:
+            dtemp -= jnp.min(dtemp)
+            dtemp /= jnp.max(dtemp) + 1e-3 #small constant to not get 1 as input value
 
         output.append(dtemp)
     

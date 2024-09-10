@@ -46,9 +46,25 @@ def make_torch_dataset(config):
     if "MCPrimaryEnergy" in flux_vars:
         print("Renamed key 'MCPrimaryEnergy' into 'true_energy'")
         flux_vars["true_energy"] = flux_vars.pop("MCPrimaryEnergy")
+    if "MCPrimaryDec" in flux_vars:
+        print("Renamed key 'MCPrimaryDec' into 'true_dec'")
+        flux_vars["true_dec"] = flux_vars.pop("MCPrimaryDec")
+    if "MCPrimaryRA" in flux_vars:
+        print("Renamed key 'MCPrimaryRA' into 'true_ra'")
+        flux_vars["true_ra"] = flux_vars.pop("MCPrimaryRA")
+    
+    print(flux_vars.keys())
 
     input_data = input_data[mask_exists&mask_cut]
 
-    ds = SimpleDataset(input_data,flux_vars,sample_weights)
+    additional_kwargs = config["additional_kwargs"]
+
+    kwargs_values={}
+    for key in additional_kwargs:
+        df_key = config["kwargs_values"][key]
+        print(df_key," has the following number of entries ",len(onp.array(df[df_key])))
+        kwargs_values[key] = onp.array(df[df_key])[mask_exists&mask_cut]
+
+    ds = SimpleDataset(input_data,flux_vars,sample_weights,additional_kwargs,kwargs_values)
 
     return ds, sample_weights

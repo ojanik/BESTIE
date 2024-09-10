@@ -3,13 +3,14 @@ import torch
 
 
 class SimpleDataset(Dataset):
-    def __init__(self,input_data,flux_vars,sample_weights):
+    def __init__(self,input_data,flux_vars,sample_weights,additional_kwargs=[],kwargs_values=[]):
         
         self.input_data = input_data
         self.flux_vars = flux_vars
         self.sample_weights = sample_weights
 
-        
+        self.additional_kwargs = additional_kwargs
+        self.kwargs_values = kwargs_values
         
     def __getitem__(self, idx):
         #data = {"reco_energy": self.data["energy_truncated"][idx],
@@ -22,7 +23,12 @@ class SimpleDataset(Dataset):
 
         sample_weights = self.sample_weights[idx]
 
-        return input_data, aux, sample_weights
+        kwargs = {}
+
+        for key in self.additional_kwargs:
+            kwargs[key] = self.kwargs_values[key][idx]
+        #kwargs = {"a":0}
+        return input_data, aux, sample_weights, kwargs
     
     def __len__(self):
         return len(self.input_data)
