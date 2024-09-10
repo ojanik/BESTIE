@@ -165,11 +165,29 @@ def main(config,
                                                aux=aux,
                                                sample_weights=sample_weights,
                                                **kwargs)
+            if config["training"]["average_gradients"]:
+                try:
+                    collected_grads
+                except:
+                    collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,grads)
+                collected_grads = BESTIE.utilities.jax_utils.add_pytrees(collected_grads,grads)
+            else:
+                state = state.apply_gradients(grads=grads)
+
+            
+
+            
             history_steps.append(loss)
             pbar.set_description(f"loss: {loss:.9f}")
             running_loss += loss
 
+        if config["training"]["average_gradients"]:
+            average_grads = BESTIE.utilities.jax_utils.scale_pytrees(1/len(it_dl),collected_grads)
+            state = state.apply_gradients(grads=average_grads)
+            collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,collected_grads)
 
+        lr = lr_fn(state.step)
+        lr_epochs.append(lr)
         
         avg_loss = running_loss / batches_per_epoch
         history.append(avg_loss)
@@ -179,6 +197,7 @@ def main(config,
         result_dict["history"] = history 
         result_dict["params"] = state.params
         result_dict["history_steps"] = history_steps
+        result_dict["learning_rate_epochs"] = lr_epochs
 
 
         jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
