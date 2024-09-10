@@ -75,3 +75,13 @@ galactictemplate_cringe_3d:
   parameters: [galactic_norm]
   additional:
     template_file: /data/user/pfuerst/DiffuseExtensions/templates/galactic_hists/snowstorm_MC/combined_3D/Cringe_combined_tracks_45_33_180_cscd_21_3_18_muon_18_hybrid_11_1_18.pickle
+
+galacticspline_cringe_fromfits:
+  baseline_weights: powerlaw
+  class: GalacticSpline
+  parameters: [galactic_norm]
+  additional:
+    reference_index: 2.
+    map_file: /home/saturn/capn/capn105h/data/cringe_fits/Neutrino_AAfrag_Galprop_Ferr_Fiducial_256.fits
+    map_class: CringeFitsMap
+    evaluator: MapEvaluatorBinned
