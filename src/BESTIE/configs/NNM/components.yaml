@@ -63,6 +63,12 @@ brokenastro_fixed:
 #
 # galactic
 #
+
+cringe_baseline:
+  baseline_weights: cringe_baseline
+  class: GalacticBaseline
+  parameters: [galactic_norm]
+
 galactictemplate_cringe_3d:
   baseline_weights: powerlaw
   class: GalacticTemplate
