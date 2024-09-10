@@ -79,7 +79,19 @@ def main(config,
     obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
 
     rng = random.key(config["rng"])
-    init_params = obj.net.init(rng,jnp.ones(len(config["dataset"]["input_vars"])))["params"]
+    
+    input_size = len(config["dataset"]["input_vars"])
+    B = BESTIE.data.fourier_feature_mapping.get_B(config["dataset"])
+    if B is not None:
+        input_size = 2 * int(config["dataset"]["fourier_feature_mapping"]["mapping_size"])
+
+    print(f"--- The network has an input size of {input_size} ---")
+
+    result_dict["ffm"] = {}
+    result_dict["ffm"]["B"] = B
+    init_params = obj.net.init(rng,jnp.ones(input_size))["params"]
+
+    result_dict["init_params"] = init_params
 
     it_dl = dl
 
@@ -124,6 +136,7 @@ def main(config,
         for i,(data,aux,sample_weights) in pbar:
             data = Array(data)
             sample_weights = 1-(1-Array(sample_weights))**config["training"]["batch_size"] if sample else None
+            data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
