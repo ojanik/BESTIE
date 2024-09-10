@@ -10,4 +10,5 @@ input_params:
   barr_w: 0.0
   barr_y: 0.0
   barr_z: 0.0
+  galactic_norm: 1.0
   # all (other) nuisance parameters at default
