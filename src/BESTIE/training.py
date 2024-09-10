@@ -1,5 +1,5 @@
 import BESTIE
-from BESTIE.data_loaders import SimpleDataset
+from BESTIE.data import SimpleDataset
 from flax.training import train_state
 import optax
 from jax import random, jit, value_and_grad
@@ -62,7 +62,7 @@ def main(config,
 
         shuffle = False
         drop_last = False
-    batches_per_epoch = 200#int(jnp.floor(len(ds)/config["training"]["batch_size"]))
+    batches_per_epoch = config["training"]["batches_per_epoch"]#int(jnp.floor(len(ds)/config["training"]["batch_size"]))
 
     dl = DataLoader(dataset=ds,
                     batch_size=config["training"]["batch_size"],
