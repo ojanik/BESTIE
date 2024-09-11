@@ -18,5 +18,8 @@ def divide_pytrees(pytree1, pytree2):
 def scale_pytrees(scalar, pytree):
   return tree_map(lambda pt: scalar * pt, pytree)
 
-def median_pytree(pytree):
-  return tree_map(lambda pt: jnp.median(pt), pytree)
+def median_pytree(*pytree):
+  def elem_median(*leaves):
+    stacked = jnp.stack(leaves)
+    return jnp.median(stacked, axis=0)
+  return tree_map(elem_median, *pytree)
