@@ -1,4 +1,5 @@
 from jax.tree_util import tree_map
+import jax.numpy as jnp
 
 ## A collection of functions acting on pytrees
 
@@ -16,3 +17,6 @@ def divide_pytrees(pytree1, pytree2):
 
 def scale_pytrees(scalar, pytree):
   return tree_map(lambda pt: scalar * pt, pytree)
+
+def median_pytree(pytree):
+  return tree_map(lambda pt: jnp.median(pt), pytree)
