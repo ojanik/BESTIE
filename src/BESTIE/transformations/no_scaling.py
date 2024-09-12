@@ -1,3 +1,6 @@
 def no_scaling(lss,**kwargs): #test
-    lss = lss[:,0]
+    try:
+        lss = lss[:,0]
+    except:
+        pass
     return lss
