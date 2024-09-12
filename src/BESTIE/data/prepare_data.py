@@ -32,8 +32,8 @@ def create_input_data(df,config):
             dtemp = (dtemp-onp.mean(dtemp[mask]))/onp.std(dtemp[mask])
 
         elif vari["transform"] in ["sphere"]:
-            dtemp -= jnp.min(dtemp)
-            dtemp /= jnp.max(dtemp) + 1e-3 #small constant to not get 1 as input value
+            dtemp -= jnp.min(dtemp[mask])
+            dtemp /= jnp.max(dtemp[mask]) + 1e-3 #small constant to not get 1 as input value
 
         output.append(dtemp)
     
