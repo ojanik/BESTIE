@@ -206,7 +206,7 @@ def plot_routine(model_path,
         nob = config["hists"]["bins_number"]
         digi = jnp.digitize(lss,bins=jnp.linspace(0,1,nob+1))
 
-        plt.scatter(df["ra_MPEFit"],jnp.cos(Array(df["zenith_MPEFit"])),c=digi,cmap="tab20")
+        plt.scatter(Array(df["ra_MPEFit"])[mask],jnp.cos(Array(df["zenith_MPEFit"]))[mask],c=digi,cmap="tab20")
         #plt.xscale("log")
         plt.xlabel("reco ra")
         plt.ylabel("cos(reco zenith)")
