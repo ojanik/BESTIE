@@ -285,7 +285,7 @@ if __name__ == "__main__":
             train_for_shape=args.train_for_shape,
             sample=args.sample,
             no_trainstep_pbar=args.no_trainstep_pbar,
-            plots_hists=args.plot_hists,
+            plot_hists=args.plot_hists,
             plot_2D_scatter=args.plot_2D_scatter,
             plot_galactic=args.plot_galactic)
 
