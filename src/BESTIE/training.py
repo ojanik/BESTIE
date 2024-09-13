@@ -21,7 +21,10 @@ def main(config,
         name="unnamed",
         train_for_shape=False,
         sample=False,
-        no_trainstep_pbar=False):
+        no_trainstep_pbar=False,
+        plot_hists=False,
+        plot_2D_scatter=False,
+        plot_galactic=False):
 
     from datetime import datetime
 
@@ -226,6 +229,16 @@ def main(config,
 
         #jax.profiler.save_device_memory_profile("memory.prof")    
 
+        if plot_hists or plot_2D_scatter:
+            from BESTIE.utilities import plot_routine
+
+            plot_routine(model_path=save_dir,
+                         make_unweighted_hist=plot_hists,
+                         make_weighted_hist=plot_hists,
+                         make_2D_scatter=plot_2D_scatter,
+                         galactic=plot_galactic,
+                         make_2D_scatter_galactic=plot_2D_scatter&plot_galactic)
+
         run_inference = False
 
         if run_inference:
@@ -241,8 +254,10 @@ if __name__ == "__main__":
     parser.add_argument('--train_for_shape',action='store_true',help="If shape should be trained")
     parser.add_argument('--sample',action='store_true',help="If shape should be sampled")
     parser.add_argument('--no_trainstep_pbar',action='store_true',help="Flag to disable a progress bar for each epoch")
-    parser.add_argument('--overrides',action="append",default=[])
-    #parser.add_argument('--average_gradients',action='store_true',help="Flag to toggle averaging of gradients over an epoch instead of applying it after every train step")
+    parser.add_argument('--overrides',nargs='+',default=[])
+    parser.add_argument('--plot_hists',action='store_true',default=False,help="Flag if unweighted and weighted hists should be created")
+    parser.add_argument('--plot_2D_scatter',action="store_true",default=False,help="Flag if 2D scatter plot in energy and cos zenith should be done")
+    parser.add_argument('--plot_galactic',action='store_true',default=False,help="If plot_hists is also set, then the galactic component is included, if plot_2D_scatter then also 2D_scatter in cos zenith and ra is plotted")
     args = parser.parse_args()
 
 
@@ -259,7 +274,10 @@ if __name__ == "__main__":
             name=args.name,
             train_for_shape=args.train_for_shape,
             sample=args.sample,
-            no_trainstep_pbar=args.no_trainstep_pbar)
+            no_trainstep_pbar=args.no_trainstep_pbar,
+            plots_hists=args.plot_hists,
+            plot_2D_scatter=args.plot_2D_scatter,
+            plot_galactic=args.plot_galactic)
 
     """wide_layer = {"layer":"Dense","size":1650,"activation":"relu"}
 
