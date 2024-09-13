@@ -243,6 +243,7 @@ def main(config,
 
         if run_inference:
             print("-- Running inference for the whole dataset ---")
+            raise NotImplementedError("Running inference is not implemented yet")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some paths and an optional name.")
     
