@@ -168,6 +168,10 @@ def main(config,
                                                aux=aux,
                                                sample_weights=sample_weights,
                                                **kwargs)
+            
+            if jnp.isnan(loss):
+                raise ValueError("Loss is nan")
+
             if config["training"]["average_gradients"]:
                 try:
                     collected_grads
