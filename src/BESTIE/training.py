@@ -261,13 +261,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    config = BESTIE.utilities.parse_yaml(args.config_path)
+    config = BESTIE.utilities.configs.parse_yaml(args.config_path)
+
+    config["dataset"] = BESTIE.utilities.configs.parse_yaml(args.dataset_config_path)
 
     for override in args.overrides:
-        override_dict = BESTIE.utilities.parse_yaml(override)
-        config.update(override_dict)
-
-    config["dataset"] = BESTIE.utilities.parse_yaml(args.dataset_config_path)
+        override_dict = BESTIE.utilities.configs.parse_yaml(override)
+        config = BESTIE.utilities.configs.override(config,override_dict)
 
     main(config=config,
             output_dir=args.output_dir, 
@@ -278,6 +278,7 @@ if __name__ == "__main__":
             plots_hists=args.plot_hists,
             plot_2D_scatter=args.plot_2D_scatter,
             plot_galactic=args.plot_galactic)
+
 
     """wide_layer = {"layer":"Dense","size":1650,"activation":"relu"}
 
