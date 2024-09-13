@@ -67,6 +67,11 @@ def main(config,
         drop_last = False
     batches_per_epoch = config["training"]["batches_per_epoch"]#int(jnp.floor(len(ds)/config["training"]["batch_size"]))
 
+    if config["training"]["average_gradients"]:
+        update_steps_per_epoch = 1
+    else:
+        update_steps_per_epoch = batches_per_epoch
+
     dl = DataLoader(dataset=ds,
                     batch_size=config["training"]["batch_size"],
                     num_workers=0,
@@ -111,7 +116,7 @@ def main(config,
 
     print(100*"-")
     
-    lr_fn = BESTIE.nets.lr_handler(config,batches_per_epoch)
+    lr_fn = BESTIE.nets.lr_handler(config,update_steps_per_epoch)
 
     tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr_fn)
 
