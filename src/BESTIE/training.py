@@ -131,6 +131,38 @@ def main(config,
 
     #training loop
 
+    """print("--- Start data hist test ---")
+
+    import time
+    # Start time
+    start_time = time.time()
+
+    # Run the function
+    dl = DataLoader(dataset=ds,
+                    batch_size=len(ds),
+                    num_workers=0,
+                    shuffle=shuffle,
+                    drop_last=drop_last)
+    
+    input_data, aux, sample_weights, kwargs = next(iter(dl_))
+    input_data = Array(input_data)
+    for key in aux.keys():
+                aux[key] = Array(aux[key])
+    input_data = BESTIE.data.fourier_feature_mapping.input_mapping(input_data,B)
+    obj.calc_data_hist(init_params,input_data,aux,Array(list(injected_params.values())))
+    print(obj.data_hist)
+
+    # End time
+    end_time = time.time()
+
+    # Time taken
+    execution_time = end_time - start_time
+    print(f"Time taken by the function: {execution_time} seconds")
+    print(f"Time taken by the function: {execution_time} seconds")
+
+    print("--- Test done ---")
+    quit()"""
+
     history = []
     history_steps = []
     lr_epochs = []
@@ -174,6 +206,8 @@ def main(config,
                                                sample_weights=sample_weights,
                                                **kwargs)
             
+            #print(grads)
+
             if jnp.isnan(loss):
                 raise ValueError("Loss is nan")
 
@@ -190,11 +224,12 @@ def main(config,
 
             
             history_steps.append(loss)
-            pbar.set_description(f"loss: {loss:.9f}")
+            pbar.set_description(f"loss: {loss:.15f}")
             running_loss += loss
 
         if config["training"]["average_gradients"]:
             average_grads = BESTIE.utilities.jax_utils.scale_pytrees(1/len(it_dl),collected_grads)
+            #print(average_grads)
             state = state.apply_gradients(grads=average_grads)
             collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,collected_grads)
 
@@ -238,21 +273,22 @@ def main(config,
 
         #jax.profiler.save_device_memory_profile("memory.prof")    
 
-        if plot_hists or plot_2D_scatter:
-            from BESTIE.utilities import plot_routine
+    if plot_hists or plot_2D_scatter:
+        from BESTIE.utilities import plot_routine
 
-            plot_routine(model_path=save_dir,
-                         make_unweighted_hist=plot_hists,
-                         make_weighted_hist=plot_hists,
-                         make_2D_scatter=plot_2D_scatter,
-                         galactic=plot_galactic,
-                         make_2D_scatter_galactic=plot_2D_scatter&plot_galactic)
+        plot_routine(model_path=save_dir,
+                        make_unweighted_hist=plot_hists,
+                        make_weighted_hist=plot_hists,
+                        make_2D_scatter=plot_2D_scatter,
+                        galactic=plot_galactic,
+                        make_2D_scatter_galactic=plot_2D_scatter&plot_galactic,
+                        galactic_contour_path="/home/saturn/capn/capn105h/data/cringe_contour.npz")
 
-        run_inference = False
+    run_inference = False
 
-        if run_inference:
-            print("-- Running inference for the whole dataset ---")
-            raise NotImplementedError("Running inference is not implemented yet")
+    if run_inference:
+        print("-- Running inference for the whole dataset ---")
+        raise NotImplementedError("Running inference is not implemented yet")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some paths and an optional name.")
     
