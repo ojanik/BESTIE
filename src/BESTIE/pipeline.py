@@ -9,6 +9,10 @@ import jax.numpy as jnp
 import jax
 Array = jnp.array
 
+from tqdm import tqdm
+
+import BESTIE
+
 class AnalysisPipeline(): #test
     def __init__(self,config,injected_parameter_keys):
         #self.config = parse_yaml(config_path)
@@ -31,7 +35,7 @@ class AnalysisPipeline(): #test
     def _set_analysis_pipeline(self):
 
         #@jit
-        def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None,**kwargs):
+        def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None,skip_llh=False,**kwargs):
             #injected_params = dict(zip(self.injected_parameter_keys,injected_params_values))
             #weights = self.calc_weights(injected_params,aux)
             #if sample_weights is not None:
@@ -39,10 +43,11 @@ class AnalysisPipeline(): #test
             #    weights *= 1 / sample_weights
             #hist = self.calc_hist(lss,weights=weights)
             
-            #lss = self.transform_fun(lss,**kwargs)
+            lss = self.transform_fun(lss,**kwargs)
 
             hist = self.get_hist(lss,injected_params_values,aux,sample_weights)
-
+            if skip_llh:
+                return hist
             llh = self.calc_llh(data_hist,hist) 
             llh = llh.sum() / self.config["hists"]["bins_number"]
             return llh
@@ -88,6 +93,7 @@ class Optimization_Pipeline(AnalysisPipeline):
             lss = self.transform_fun(lss,**kwargs)
             #jax.debug.print("{x}",x=lss)
             data_hist = self.get_hist(lss,injected_params,aux,sample_weights)
+            #data_hist = self.data_hist
             loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist,sample_weights,**kwargs)
 
             return loss
@@ -100,7 +106,7 @@ class Optimization_Pipeline(AnalysisPipeline):
     def get_loss(self,net_params,injected_params,data,aux,data_hist):
         lss = self.net.apply({"params":net_params},data)[:,0]
         loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist)
-
+        
         return loss
     
     def get_asimovhist_func(self):
