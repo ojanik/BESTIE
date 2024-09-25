@@ -121,6 +121,25 @@ class Optimization_Pipeline(AnalysisPipeline):
         
         return calc_asimovhist
 
+    def calc_data_hist(self, net_params, data, aux, injected_params, batch_size = 10000):
+        num_parts = int(jnp.ceil(len(data)/batch_size))
+        apply_fn = jit(self.net.apply)
+        print("--- Calculating lss ---")
+        for i in tqdm(range(num_parts),disable=True):
+            batched_input_data = data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(data)])),:-1]
+            batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B)
+            if i == 0:
+                lss = apply_fn({"params": net_params},batched_input_data)[:,0]
+            else:
+                lss = jnp.concatenate([lss,apply_fn({"params": net_params},batched_input_data)[:,0]])
+
+        weights = self.calc_weights(injected_params,aux)
+        self.data_hist = jnp.histogram(lss,
+                                       weights = weights, 
+                                       bins=jnp.linspace(self.config["hists"]["bins_low"],
+                                                             self.config["hists"]["bins_up"],
+                                                             self.config["hists"]["bins_number"]))
+
 if __name__ == "__main__":
     print("This is a module meant for importing only, NOT a script that can be executed!")
 
