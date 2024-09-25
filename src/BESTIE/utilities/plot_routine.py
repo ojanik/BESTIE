@@ -22,7 +22,8 @@ def plot_routine(model_path,
          make_trainstep_loss_curve=False,
          all_flag=False,
          galactic=False,
-         save_df=False):
+         save_df=False,
+         galactic_contour_path=None):
 
     path_to_config = os.path.join(model_path,"config.yaml")
     config = BESTIE.utilities.parse_yaml(path_to_config)
@@ -102,10 +103,10 @@ def plot_routine(model_path,
     #mask2 = ~jnp.isnan(lss[mask])
     #lss -= jnp.min(lss[mask][mask2])
     #lss /= jnp.max(lss[mask][mask2])
-
+    print("Creating pipeline object")
     injected_params = config["injected_params"]
     obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
-
+    print("Pipeline object created")
     print("lss: ",lss)
     print("lss_0: ",kwargs["lss0"])
 
@@ -180,6 +181,14 @@ def plot_routine(model_path,
         ax.set_yscale("log")
         ax.set_xlabel("lss")
         ax.set_ylabel("number of MC events, unweighted")
+        
+        #bin_numbers = onp.arange(1, config["hists"]["bins_number"] + 1)
+
+        # Choose to label every 100th bin, for example
+        #step = 100
+        #selected_bins = bin_numbers[::step] 
+        #bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Calculate bin centers
+        #selected_bin_centers = bin_centers[::step] 
 
         plt.savefig(os.path.join(model_path,"unweighted_hist.png"),dpi=256)
         plt.close()
@@ -193,7 +202,8 @@ def plot_routine(model_path,
         plt.xscale("log")
         plt.xlabel("reco energy")
         plt.ylabel("cos(reco zenith)")
-        plt.colorbar()
+        cbar = plt.colorbar()
+        cbar.set_label('Bin Number')
 
         plt.ylim(-1.05,0.05)
         plt.xlim(1e1,1e8)
@@ -206,11 +216,20 @@ def plot_routine(model_path,
         nob = config["hists"]["bins_number"]
         digi = jnp.digitize(lss,bins=jnp.linspace(0,1,nob+1))
 
-        plt.scatter(Array(df["ra_MPEFit"])[mask],jnp.cos(Array(df["zenith_MPEFit"]))[mask],c=digi,cmap="tab20")
+            
+
+        scatter = plt.scatter(Array(df["ra_MPEFit"])[mask],jnp.cos(Array(df["zenith_MPEFit"]))[mask],c=digi,cmap="tab20")
         #plt.xscale("log")
+        if galactic_contour_path is not None:
+            galactic_contour = onp.load(galactic_contour_path)
+            RA_grid = galactic_contour['RA_grid']
+            Dec_grid = galactic_contour['Dec_grid']
+            flux_binned = galactic_contour['flux_binned']
+            plt.contour(RA_grid, Dec_grid, flux_binned.T, levels=onp.array([1-0.99,1-0.68])*onp.max(flux_binned), cmap='Greys')
         plt.xlabel("reco ra")
         plt.ylabel("cos(reco zenith)")
-        plt.colorbar()
+        cbar = plt.colorbar(scatter)
+        cbar.set_label('Bin Number')
 
         plt.ylim(-1.05,0.05)
         plt.xlim(-0.1,6.3)
@@ -254,7 +273,7 @@ def plot_routine(model_path,
 
     if save_to is not None:
         df.insert(3,"lss",onp.array(lss))
-        df.to_hdf(save_to,"a")
+        df.to_hdf(save_to,key="a")
         print(f"Saved dataframe with lss at {save_to}")
 
     if save_df:
@@ -268,6 +287,6 @@ def plot_routine(model_path,
         if ext[1:].lower() in ["parquet"]:
             df.to_parquet(dataframe)
         elif ext[1:].lower() in ["hdf","hd5"]:
-            df.to_hdf(dataframe)
+            df.to_hdf(dataframe,key="a")
         
         print(f"--- Saved dataframe at {dataframe} ---")
