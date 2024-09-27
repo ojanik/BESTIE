@@ -8,6 +8,7 @@ Array = jnp.array
 import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+from jax import nn
 
 import yaml
 
@@ -98,6 +99,7 @@ def main(config,
     result_dict["ffm"] = {}
     result_dict["ffm"]["B"] = B
     init_params = obj.net.init(rng,jnp.ones(input_size))["params"]
+    init_params["scale"] = 0.
 
     result_dict["init_params"] = init_params
 
@@ -166,6 +168,7 @@ def main(config,
     history = []
     history_steps = []
     lr_epochs = []
+    number_of_bins = []
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
 
@@ -224,7 +227,7 @@ def main(config,
 
             
             history_steps.append(loss)
-            pbar.set_description(f"loss: {loss:.15f}")
+            pbar.set_description(f"loss: {loss:,.6g} ; number of bins: {config['hists']['bins_number']*nn.sigmoid(state.params['scale']):,.6g}")
             running_loss += loss
 
         if config["training"]["average_gradients"]:
@@ -238,10 +241,12 @@ def main(config,
         
         avg_loss = running_loss / batches_per_epoch
         history.append(avg_loss)
+        number_of_bins.append(config['hists']['bins_number']*nn.sigmoid(state.params['scale']))
 
         tpbar.set_description(f"epoch loss: {avg_loss:.9f}")
 
         result_dict["history"] = history 
+        result_dict["number_of_bins"] = number_of_bins
         result_dict["params"] = state.params
         result_dict["history_steps"] = history_steps
         result_dict["learning_rate_epochs"] = lr_epochs
@@ -261,8 +266,8 @@ def main(config,
         ax2 = ax.twinx()
 
         ax.scatter(jnp.arange(len(history)),history,color="blue",label="loss")
-        ax2.scatter(jnp.arange(len(history)),lr_epochs,color="red",label="lr")
-        ax2.set_ylabel("lr")
+        ax2.scatter(jnp.arange(len(history)),number_of_bins,color="red",label="number of bins")
+        ax2.set_ylabel("number of bins")
         ax.set_xlabel("epoch")
         ax.set_ylabel("loss")
         ax.set_yscale("log")
