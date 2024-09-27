@@ -36,15 +36,6 @@ class AnalysisPipeline(): #test
 
         #@jit
         def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None,skip_llh=False,**kwargs):
-            #injected_params = dict(zip(self.injected_parameter_keys,injected_params_values))
-            #weights = self.calc_weights(injected_params,aux)
-            #if sample_weights is not None:
-            #    sample_weights = jnp.reshape(sample_weights,weights.shape)
-            #    weights *= 1 / sample_weights
-            #hist = self.calc_hist(lss,weights=weights)
-            
-            lss = self.transform_fun(lss,**kwargs)
-
             hist = self.get_hist(lss,injected_params_values,aux,sample_weights)
             if skip_llh:
                 return hist
@@ -91,6 +82,7 @@ class Optimization_Pipeline(AnalysisPipeline):
         def optimization_pipeline(net_params,injected_params,data,aux,sample_weights,**kwargs):
             lss = self.net.apply({"params":net_params},data)
             lss = self.transform_fun(lss,**kwargs)
+            lss *= (self.config["hists"]["bins_up"]*jax.nn.sigmoid(net_params["scale"]))
             #jax.debug.print("{x}",x=lss)
             data_hist = self.get_hist(lss,injected_params,aux,sample_weights)
             #data_hist = self.data_hist
@@ -112,6 +104,7 @@ class Optimization_Pipeline(AnalysisPipeline):
     def get_asimovhist_func(self):
         def calc_asimovhist(net_params,injected_params,data,aux,**kwargs):
             lss = self.get_lss(net_params,data)
+            
             lss = self.transform_fun(lss,**kwargs)
             injected_params = dict(zip(self.injected_parameter_keys,injected_params))
             weights = self.calc_weights(injected_params,aux)

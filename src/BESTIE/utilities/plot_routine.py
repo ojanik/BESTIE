@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as onp
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from jax import jit, vmap, random
+from jax import jit, vmap, random, nn
 
 import os
 
@@ -99,6 +99,8 @@ def plot_routine(model_path,
     transform_fun = BESTIE.transformations.transformation_handler(config["transformation"])
 
     lss = transform_fun(lss,**kwargs)
+    bin_scale_up = config["hists"]["bins_up"]*nn.sigmoid(params["scale"])
+    lss *= bin_scale_up
 
     #mask2 = ~jnp.isnan(lss[mask])
     #lss -= jnp.min(lss[mask][mask2])
