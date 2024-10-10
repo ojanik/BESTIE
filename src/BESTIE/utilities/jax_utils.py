@@ -23,3 +23,7 @@ def median_pytree(*pytree):
     stacked = jnp.stack(leaves)
     return jnp.median(stacked, axis=0)
   return tree_map(elem_median, *pytree)
+
+def apply_mask(grads, mask):
+    # Recursively apply mask to each parameter
+    return tree_map(lambda g, m: g * m, grads, mask)
