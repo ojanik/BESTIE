@@ -22,7 +22,8 @@ def plot_routine_dep(model_path,
          make_trainstep_loss_curve=False,
          all_flag=False,
          galactic=False,
-         save_df=False):
+         save_df=False,
+         galactic_contour_path=None):
 
     path_to_config = os.path.join(model_path,"config.yaml")
     config = BESTIE.utilities.parse_yaml(path_to_config)
@@ -298,6 +299,8 @@ if __name__=="__main__":
 
     parser.add_argument('--save_df',action='store_true',help="Flag if df should be saved with the new lss values")
 
+    parser.add_argument('--galactic_contour_path',default=None,help="Path to galactic contour")
+    
     args = parser.parse_args()
 
     from BESTIE.utilities import plot_routine
@@ -312,6 +315,7 @@ if __name__=="__main__":
          make_trainstep_loss_curve=args.make_trainstep_loss_curve,
          all_flag = args.all,
          galactic = args.galactic,
-         save_df=args.save_df)
+         save_df=args.save_df,
+         galactic_contour_path=args.galactic_contour_path)
     
     print("DONE")
