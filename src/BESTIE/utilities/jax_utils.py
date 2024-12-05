@@ -27,3 +27,13 @@ def median_pytree(*pytree):
 def apply_mask(grads, mask):
     # Recursively apply mask to each parameter
     return tree_map(lambda g, m: g * m, grads, mask)
+
+def rearrange_matrix(matrix, indices):
+    n = matrix.shape[0]
+    
+    # Create a new order of indices: specified ones first, then the rest
+    new_order = indices + [i for i in range(n) if i not in indices]
+    
+    # Rearrange the rows and columns
+    matrix_rearranged = matrix[new_order, :][:, new_order]
+    return matrix_rearranged
