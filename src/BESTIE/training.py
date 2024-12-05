@@ -22,7 +22,7 @@ def main(config,
         name="unnamed",
         train_for_shape=False,
         sample=False,
-        no_trainstep_pbar=False,
+        trainstep_pbar=False,
         plot_hists=False,
         plot_2D_scatter=False,
         plot_galactic=False):
@@ -174,7 +174,7 @@ def main(config,
 
         
 
-        pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=no_trainstep_pbar)
+        pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=not trainstep_pbar)
         for i,(data,aux,sample_weights,kwargs) in pbar:
             data = Array(data)
             
@@ -210,7 +210,7 @@ def main(config,
                                                sample_weights=sample_weights,
                                                **kwargs)
             
-            #print(grads)
+            
 
             if jnp.isnan(loss):
                 raise ValueError("Loss is nan")
@@ -305,7 +305,7 @@ if __name__ == "__main__":
     parser.add_argument('--name', type=str, help="Optional name")
     parser.add_argument('--train_for_shape',action='store_true',help="If shape should be trained")
     parser.add_argument('--sample',action='store_true',help="If shape should be sampled")
-    parser.add_argument('--no_trainstep_pbar',action='store_true',help="Flag to disable a progress bar for each epoch")
+    parser.add_argument('--trainstep_pbar',action='store_true',help="Flag to enable a progress bar for each epoch")
     parser.add_argument('--overrides',nargs='+',default=[])
     parser.add_argument('--plot_hists',action='store_true',default=False,help="Flag if unweighted and weighted hists should be created")
     parser.add_argument('--plot_2D_scatter',action="store_true",default=False,help="Flag if 2D scatter plot in energy and cos zenith should be done")
@@ -326,7 +326,7 @@ if __name__ == "__main__":
             name=args.name,
             train_for_shape=args.train_for_shape,
             sample=args.sample,
-            no_trainstep_pbar=args.no_trainstep_pbar,
+            trainstep_pbar=args.trainstep_pbar,
             plot_hists=args.plot_hists,
             plot_2D_scatter=args.plot_2D_scatter,
             plot_galactic=args.plot_galactic)
