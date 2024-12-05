@@ -22,7 +22,10 @@ def create_input_data(df,config):
         dtemp = onp.array(df[vari["var_name"]])
 
         if "scale" in vari:
-            dtemp = getattr(onp, vari["scale"])(dtemp)
+            try:
+                dtemp = getattr(onp, vari["scale"])(dtemp)
+            except:
+                print("Couldn't find given scale method. Continuing without scaling the data.")
 
         if "standardize" in vari:
             print("The standardize key in the dataset config is deprecated, please use transform")
@@ -33,7 +36,7 @@ def create_input_data(df,config):
 
         elif vari["transform"] in ["sphere"]:
             dtemp -= jnp.min(dtemp[mask])
-            dtemp /= jnp.max(dtemp[mask]) + 1e-3 #small constant to not get 1 as input value
+            dtemp /= (jnp.max(dtemp[mask]) + 1e-3) #small constant to not get 1 as input value
 
         output.append(dtemp)
     
