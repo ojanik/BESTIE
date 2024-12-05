@@ -52,6 +52,11 @@ def bKDE(
     # sum kde contributions in each bin
     counts = (cdf[1:, :] - cdf[:-1, :]).sum(axis=1)
 
+    calc_sigma = False # TODO add implementation of SAY likelihood, then activate this
+
+    if calc_sigma:
+        sigma = ((cdf[1:, :] - cdf[:-1, :])**2).sum(axis=1)
+
     if density:  # normalize by bin width and counts for total area = 1
         db = jnp.array(jnp.diff(bins), float)  # bin spacing
         counts = counts / db / counts.sum(axis=0)
@@ -62,5 +67,15 @@ def bKDE(
             + jnp.array([counts[0]] + [0] * (len(counts) - 3))
             + jnp.array([0] * (len(counts) - 3) + [counts[-1]])
         )
+        if calc_sigma:
+            sigma = (
+                sigma[1:-1]
+                + jnp.array([sigma[0]] + [0] * (len(sigma) - 3))
+                + jnp.array([0] * (len(sigma) - 3) + [sigma[-1]])
+            )
 
-    return counts
+    if calc_sigma:
+        return counts, sigma
+    
+    else:
+        return counts
