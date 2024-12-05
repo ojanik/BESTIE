@@ -41,7 +41,7 @@ class AnalysisPipeline(): #test
                 return hist
             llh = self.calc_llh(data_hist,hist) 
             llh = llh.sum() / self.config["hists"]["bins_number"]
-            return llh
+            return llh  
         self._analysis_pipeline = analysis_pipeline
 
     def get_hist(self,lss,injected_params,aux,sample_weights=None):
@@ -49,7 +49,7 @@ class AnalysisPipeline(): #test
         weights = self.calc_weights(injected_params,aux)
         if sample_weights is not None:
                 sample_weights = jnp.reshape(sample_weights,weights.shape)
-                weights *= 1 / sample_weights
+                weights *= (1e6/(jnp.sum(1/sample_weights)) / sample_weights)
         hist = self.calc_hist(lss, weights=weights)
 
         return hist

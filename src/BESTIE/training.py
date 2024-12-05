@@ -179,7 +179,8 @@ def main(config,
             data = Array(data)
             
             data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
-            sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
+            #sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
+            sample_weights = Array(sample_weights) if sample else None
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
