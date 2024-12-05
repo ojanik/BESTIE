@@ -8,7 +8,7 @@ Array = jnp.array
 import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from jax import nn
+from functools import partial
 
 import yaml
 
@@ -47,12 +47,16 @@ def main(config,
     for key in injected_params.keys():
         injected_params[key] = Array(injected_params[key])
 
-    #get dataset and dataloader and sample_weights
-    #ds = torch.load(config["dataset_path"])
+
+    print(list(injected_params.keys()))
+    # Creating Pipeline Object
+    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
 
     print("--------------------- Loading and preparing data ---------------------")
-    ds, sample_weights = BESTIE.data.make_torch_dataset(config["dataset"])
-
+    # function to calculate the weights 
+    weighter = obj.calc_weights
+    ds, sample_weights = BESTIE.data.make_torch_dataset(config["dataset"],weighter=weighter)
+    
     sampler = None
     shuffle = True
     drop_last = True
