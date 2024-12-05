@@ -99,6 +99,7 @@ def main(config,
     result_dict["ffm"] = {}
     result_dict["ffm"]["B"] = B
     init_params = obj.net.init(rng,jnp.ones(input_size))["params"]
+    
     init_params["scale"] = 0.
 
     result_dict["init_params"] = init_params
@@ -117,7 +118,7 @@ def main(config,
     ########################################################################################################################################
 
     print(100*"-")
-    
+    #setup train state
     lr_fn = BESTIE.nets.lr_handler(config,update_steps_per_epoch)
 
     tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr_fn)
@@ -125,6 +126,25 @@ def main(config,
     state = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
                                           tx=tx)
+
+    state_bins = train_state.TrainState.create(apply_fn=obj.net.apply,
+                                          params=init_params,
+                                          tx=tx)
+
+    #state_bins = train_state.TrainState.create(apply_fn=obj.net.apply,
+    #                                           params=init_params,
+    #                                           tx=tx)
+    
+    train_mask = tree_map(lambda _: jnp.ones_like(_), init_params)
+    train_mask["scale"] = 0
+
+    bins_mask = tree_map(lambda _: jnp.zeros_like(_),init_params)
+    bins_mask["scale"] = config["training"]["train_number_of_bins"]
+
+
+
+    #net_params_mask = tree_map(lambda _: 1 - _, bin_params_mask)
+
 
     pipe = obj.get_optimization_pipeline()
     #pipe = jit(pipe)
@@ -169,6 +189,7 @@ def main(config,
     history_steps = []
     lr_epochs = []
     number_of_bins = []
+
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
 
@@ -222,7 +243,10 @@ def main(config,
                     collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,grads)
                 collected_grads = BESTIE.utilities.jax_utils.add_pytrees(collected_grads,grads)
             else:
-                state = state.apply_gradients(grads=grads)
+                grads_net_params = BESTIE.utilities.jax_utils.apply_mask(grads,train_mask)
+                state = state.apply_gradients(grads=grads_net_params)
+                grads_bins = BESTIE.utilities.jax_utils.apply_mask(grads,bins_mask)
+                state_bins = state_bins.apply_gradients(grads=grads_bins)
 
             
 
@@ -232,9 +256,16 @@ def main(config,
             running_loss += loss
 
         if config["training"]["average_gradients"]:
+
+
             average_grads = BESTIE.utilities.jax_utils.scale_pytrees(1/len(it_dl),collected_grads)
             #print(average_grads)
-            state = state.apply_gradients(grads=average_grads)
+
+            grads_net_params = BESTIE.utilities.jax_utils.apply_mask(average_grads,train_mask)
+            state = state.apply_gradients(grads=grads_net_params)
+            grads_bins = BESTIE.utilities.jax_utils.apply_mask(average_grads,bins_mask)
+            state_bins = state_bins.apply_gradients(grads=grads_bins)
+
             collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,collected_grads)
 
         lr = lr_fn(state.step)
