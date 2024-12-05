@@ -82,7 +82,10 @@ class Optimization_Pipeline(AnalysisPipeline):
         def optimization_pipeline(net_params,injected_params,data,aux,sample_weights,**kwargs):
             lss = self.net.apply({"params":net_params},data)
             lss = self.transform_fun(lss,**kwargs)
-            lss *= (self.config["hists"]["bins_up"]*jax.nn.sigmoid(net_params["scale"]))
+            lss *= self.config["hists"]["bins_up"]
+            if "scale" in net_params:
+                lss *= jax.nn.sigmoid(net_params["scale"])
+                lss *= 2
             #jax.debug.print("{x}",x=lss)
             data_hist = self.get_hist(lss,injected_params,aux,sample_weights)
             #data_hist = self.data_hist
