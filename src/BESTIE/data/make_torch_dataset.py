@@ -6,7 +6,7 @@ import jax.numpy as jnp
 Array = jnp.array
 
 from BESTIE.utilities import parse_yaml
-from BESTIE.data import SimpleDataset, create_input_data, calc_bin_idx
+from BESTIE.data import SimpleDataset, create_input_data, calc_bin_idx#, calc_bin_idx_general
 
 
 def make_torch_dataset(config):
@@ -22,9 +22,7 @@ def make_torch_dataset(config):
     print("Writting the following keys as input:")
     print([x["var_name"] for x in config["input_vars"]])
 
-    data = onp.stack([df["energy_truncated"],df["zenith_MPEFit"]],axis=1)
-
-    bin_idx = calc_bin_idx(data[mask_exists&mask_cut])
+    bin_idx = calc_bin_idx(input_data[mask_exists&mask_cut])
 
     counts = onp.bincount(bin_idx)
 
