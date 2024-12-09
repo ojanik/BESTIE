@@ -29,7 +29,7 @@ def main(config,
 
     from datetime import datetime
 
-    config["output_dir"] = output_dir
+    
 
     # Get the current date and time
     now = datetime.now()
@@ -38,7 +38,7 @@ def main(config,
     date_time_str = now.strftime("%Y-%m-%d_%H-%M-%S")
 
     save_dir = os.path.join(output_dir,name+"_"+date_time_str)
-
+    config["save_dir"] = save_dir
     os.makedirs(save_dir, exist_ok=True)
 
     print(f"--- Results will be saved at {save_dir} ---")
@@ -52,13 +52,13 @@ def main(config,
 
     print(list(injected_params.keys()))
     # Creating Pipeline Object
-    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
+    
 
     print("--------------------- Loading and preparing data ---------------------")
     # function to calculate the weights 
-    weighter = partial(obj.calc_weights,injected_params)
-    ds, sample_weights = BESTIE.data.make_torch_dataset(config,weighter=weighter)
-    
+    #weighter = partial(obj.calc_weights,injected_params)
+    ds, sample_weights = BESTIE.data.make_torch_dataset(config,weighter=None)
+    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
     sampler = None
     shuffle = True
     drop_last = True

@@ -82,14 +82,14 @@ def loss_handler(config):
 
                 return opti(S)
 
-    if loss_method.lower() in ["scan"]:
+    elif loss_method.lower() in ["scan"]:
         raise NotImplementedError("Scan loss is currently not fully implemented")
         from .scan_loss import calc_scan_loss
 
         def loss(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
             return calc_scan_loss(llh,injected_params,lss,aux,data_hist,sample_weights,scan_parameter_idx=config["signal_idx"],**kwargs)
 
-    if loss.method() in ["entries_per_bin"]:
+    elif loss_method.lower()  in ["entries_per_bin"]:
         from .bin_loss import bin_loss
 
 

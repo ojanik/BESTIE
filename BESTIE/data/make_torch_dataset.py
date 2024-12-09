@@ -20,10 +20,10 @@ def make_torch_dataset(config,weighter=None):
     # Save one entry of the dataframe which will be needed to build the weight graph
     df_one = df[:1]
 
-    df_one.save_parquet(os.path.join(config["output_dir"],"df_one.parquet"))
+    df_one.to_parquet(os.path.join(config["save_dir"],"df_one.parquet"))
 
 
-    input_data, mask_exists, mask_cut = create_input_data(df,config)
+    input_data, mask_exists, mask_cut = create_input_data(df,config["dataset"])
 
     print("NaNs in input data: ",jnp.isnan(input_data).sum())
     print("input data only contains finite values: ",jnp.isfinite(input_data[mask_exists&mask_cut]).all())

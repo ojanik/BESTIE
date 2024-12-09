@@ -13,14 +13,13 @@ from tqdm import tqdm
 
 import BESTIE
 
-class AnalysisPipeline(): #test
+class AnalysisPipeline():
     def __init__(self,config,injected_parameter_keys):
-        #self.config = parse_yaml(config_path)
         self.config = config
         self.injected_parameter_keys = injected_parameter_keys
 
         self._analysis_pipeline = None
-        self.calc_weights = weight_handler(self.config["weights"])
+        self.calc_weights = weight_handler(self.config)
         self.calc_hist = hist_handler(self.config["hists"])
         self.calc_llh = llh_handler(self.config["llh"])
         self.transform_fun = transformation_handler(self.config["transformation"])

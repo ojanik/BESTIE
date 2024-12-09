@@ -1,7 +1,7 @@
 from jax import vmap
 
 def weight_handler(config):
-    method = config["method"]
+    method = config["weights"]["method"]
 
     if method.lower() in ["nnm_fit","nnmfit","nnm"]:
         # the NNMFit config should be setup in such a way that only the weight of ONE event is calculated
@@ -11,7 +11,7 @@ def weight_handler(config):
         handler = NNMFit_handler(config)
         w_nnm_fn = handler.get_weight_function()
         def w_fn(params,aux):
-            return w_nnm_fn(**params,**aux)[0] * config["upscale"]
+            return w_nnm_fn(**params,**aux)[0]
         w_fn = vmap(w_fn,in_axes=(None,0))
 
     else:

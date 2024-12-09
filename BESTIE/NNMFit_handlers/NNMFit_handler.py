@@ -17,7 +17,7 @@ class NNMFit_handler():
         config_dict = self.config_hdl.to_dict()
         name_keys = [key for key in config_dict["config"].keys() if "baseline_dataset" in config_dict["config"][key].keys()]
         for name_key in name_keys:
-            config_dict["config"][name_key]["baseline_dataset"] = os.path.join(config["output_dir"],"df_one.parquet")
+            config_dict["config"][name_key]["baseline_dataset"] = os.path.join(config["save_dir"],"df_one.parquet")
         self.config_hdl = self.config_hdl.from_dict(config_dict)
 
         self._weight_graph = None
