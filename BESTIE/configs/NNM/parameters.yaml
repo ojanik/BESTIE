@@ -109,3 +109,9 @@ galactic_norm:
   range: [0., null]
   interpolate: False
   class: Norm
+
+toy_source_norm:
+  default: 2.
+  range: [0., null]
+  interpolate: False
+  class: Norm

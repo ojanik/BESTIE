@@ -2,6 +2,8 @@ llh:
   method: poisson
 
 injected_params:
+  galactic_norm: 1.0
+  toy_source_norm: 2.0
   astro_norm: 1.44
   gamma_astro: 2.37
   prompt_norm: 1.0
@@ -12,14 +14,13 @@ injected_params:
   barr_w: 0.0
   barr_y: 0.0
   barr_z: 0.0
-  galactic_norm: 3.0
 
 hists:
   method: bkde
-  bandwidth: 0.0006
+  bandwidth: 0.01
   bins_low: 0
   bins_up: 1
-  bins_number: 1650
+  bins_number: 3300
 
 
 weights:
@@ -32,48 +33,39 @@ weights:
 
 network:
   framework: jax
-  input_size: 14
+  #input_size: 14 input size should be deprecrated
   hidden_layers:
     - layer: Dense
-      size: 14
+      size: 1024
       activation: relu
     - layer: Dense
-      size: 28
+      size: 1024
       activation: relu
     - layer: Dense
-      size: 28
-      activation: relu
-    - layer: Dense
-      size: 52
-      activation: relu
-    - layer: Dense
-      size: 52
-      activation: relu
-    - layer: Dense
-      size: 104
-      activation: relu
-    - layer: Dense
-      size: 104
+      size: 2048
       activation: relu
     - layer: Dense
       size: 1
-      activation: lin
+      activation: sigmoid
 loss:
   method: fisher
-  optimality: a
+  fisher_method: jacobian
+  optimality: ellipsoid
   signal_idx: [0,1]
 
 training:
   lr:
-    lr: 0.3
+    lr: 0.001
     method: cos
   batch_size: 50000
-  optimizer: sgd
-  epochs: 300
+  batches_per_epoch: 100
+  optimizer: adam
+  epochs: 500
+  resets: 10
+  average_gradients: True
+  train_number_of_bins: False
 
 rng: 187
 
-dataset_config: /home/saturn/capn/capn105h/software/BESTIE/src/BESTIE/configs/dataset.yaml
-
-dataset_path: /home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/dataset_baselineMSU.pt
-sample_weights_path: /home/saturn/capn/capn105h/data/IceCube/simulation/torch_datasets/bin_sample_weights_MSU.pt
+transformation:
+  method: none

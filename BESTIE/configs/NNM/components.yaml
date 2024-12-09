@@ -64,6 +64,11 @@ brokenastro_fixed:
 # galactic
 #
 
+toy_sources:
+  baseline_weights: toy_source_flux
+  class: ToySource
+  parameters: [toy_source_norm]
+
 cringe_baseline:
   baseline_weights: cringe_baseline
   class: GalacticBaseline

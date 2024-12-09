@@ -2,7 +2,7 @@ import BESTIE
 from BESTIE.data import SimpleDataset
 from flax.training import train_state
 import optax
-from jax import random, jit, value_and_grad
+from jax import random, jit, value_and_grad, nn, tree_map
 import jax.numpy as jnp
 Array = jnp.array
 import torch
@@ -29,6 +29,8 @@ def main(config,
 
     from datetime import datetime
 
+    config["output_dir"] = output_dir
+
     # Get the current date and time
     now = datetime.now()
 
@@ -54,8 +56,8 @@ def main(config,
 
     print("--------------------- Loading and preparing data ---------------------")
     # function to calculate the weights 
-    weighter = obj.calc_weights
-    ds, sample_weights = BESTIE.data.make_torch_dataset(config["dataset"],weighter=weighter)
+    weighter = partial(obj.calc_weights,injected_params)
+    ds, sample_weights = BESTIE.data.make_torch_dataset(config,weighter=weighter)
     
     sampler = None
     shuffle = True
@@ -85,11 +87,9 @@ def main(config,
                     sampler=sampler)
 
 
-    config["weights"]["upscale"] = len(ds)/config["training"]["batch_size"]
+    #config["weights"]["upscale"] = len(ds)/config["training"]["batch_size"]
 
-    #setup train state
-    print(list(injected_params.keys()))
-    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
+    
 
     rng = random.key(config["rng"])
     
@@ -193,6 +193,8 @@ def main(config,
     history_steps = []
     lr_epochs = []
     number_of_bins = []
+
+    #total_weight = obj.calc_weights(injected_params,)
 
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
