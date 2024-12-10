@@ -2,7 +2,8 @@ import BESTIE
 from BESTIE.data import SimpleDataset
 from flax.training import train_state
 import optax
-from jax import random, jit, value_and_grad, nn, tree_map
+from jax import random, jit, value_and_grad, nn
+from jax.tree_util import tree_map
 import jax.numpy as jnp
 Array = jnp.array
 import torch
