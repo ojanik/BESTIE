@@ -1,74 +1,68 @@
-# !replace with your own dataframe path!
-dataframe: /home/saturn/capn/capn105h/data/IceCube/simulation/NNMFit_dataframes/toy_sources_0.5deg_200_sources.parquet
+llh:
+  method: poisson
 
-input_vars:
-  - var_name: energy_truncated
-    scale: log
-    transform: sphere
-  - var_name: zenith_MPEFit
-    scale: cos
-    transform: sphere
-  - var_name: azimuth_MPEFit
-    transform: sphere
-  - var_name: ra_MPEFit
-    transform: sphere
-  - var_name: L5_sigma_paraboloid
-    scale: log
-    transform: sphere
+injected_params:
+  astro_norm: 1.44
+  gamma_astro: 2.37
+  prompt_norm: 1.0
+  conv_norm: 1.0
+  CR_grad: 0.0
+  delta_gamma: 0.0
+  barr_h: 0.0
+  barr_w: 0.0
+  barr_y: 0.0
+  barr_z: 0.0
 
-# list of other input vars that can be used (if available in your dataframe):
-  # - var_name: L5_bayes_llh_diff
-  #   transform: sphere
-  # - var_name: L5_cog_rho
-  #   transform: sphere
-  # - var_name: L5_cog_z
-  #   transform: sphere
-  # - var_name: L5_lseparation
-  #   transform: sphere
-  # - var_name: L5_nch
-  #   scale: log10
-  #   transform: sphere
-  # - var_name: L5_ndir_c
-  #   transform: sphere
-  # - var_name: L5_rlogl
-  #   transform: sphere
-  # - var_name: L5_sdir_e
-  #   transform: sphere
-  # - var_name: L5_sigma_paraboloid
-  #   scale: log10
-  #   transform: sphere
-  # - var_name: BDTScore
-  #   transform: sphere
-  # - var_name: BDTCascScore
-  #   transform: sphere
-    
-fourier_feature_mapping:
-  method: gauss
-  mapping_size: 128
-  scale: 1.
+hists:
+  method: bkde
+  bandwidth: 0.0005
+  bins_low: 0
+  bins_up: 1
+  bins_number: 1650
 
-exists_vars:
-  - reco_dir_exists
-  - energy_truncated_exists
 
-# cut the input vars so it covers the same range as the standard binning
-cut_vars:
-  - var_name: energy_truncated
-    min: 100
-    max: 10000000
-  - var_name: zenith_MPEFit
-    min: 1.483485438
-    max: 3.141592654
+weights:
+  method: nnm_fit
+  main_config: /home/saturn/capn/capn105h/software/BESTIE/BESTIE/configs/NNM/main_SPL.cfg
+  analysis_config: /home/saturn/capn/capn105h/software/BESTIE/BESTIE/configs/NNM/analysis_configs/asimov_SPL.yaml
+  override_configs: 
+  config_dir: /home/saturn/capn/capn105h/software/BESTIE/BESTIE/configs/NNM
 
-# adapt depending on your configured flux (in the NNMFit configs)
-flux_vars:
-  - MCPrimaryEnergy
-  - powerlaw
-  - mceq_conv_H4a_SIBYLL23c
-  - mceq_conv_GST4_SIBYLL23c
-  - mceq_pr_H4a_SIBYLL23c
-  - mceq_pr_GST4_SIBYLL23c
-  - barr_h_mceq_H4a_SIBYLL23c
-  - barr_w_mceq_H4a_SIBYLL23c
-  - barr_z_mceq_H4a_SIBYLL23c
-  - barr_y_mceq_H4a_SIBYLL23c
+
+network:
+  framework: jax
+  hidden_layers:
+    - layer: Dense
+      size: 1024
+      activation: relu
+    - layer: Dense
+      size: 1024
+      activation: relu
+    - layer: Dense
+      size: 1024
+      activation: relu
+    - layer: Dense
+      size: 1
+      activation: lin
+loss:
+  method: fisher
+  fisher_method: jacobian
+  optimality: ellipsoid
+  signal_idx: [0,1]
+
+training:
+  lr:
+    lr: 0.0001
+    method: cos
+  batch_size: 100000
+  batches_per_epoch: 50
+  optimizer: adam
+  epochs: 1000
+  resets: 10
+  average_gradients: True
+  train_number_of_bins: False
+
+rng: 187
+
+transformation:
+  method: linear
