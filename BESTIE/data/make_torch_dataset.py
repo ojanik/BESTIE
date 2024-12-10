@@ -64,13 +64,18 @@ def make_torch_dataset(config,weighter=None):
 
     input_data = input_data[mask_exists&mask_cut]
 
-    additional_kwargs = config["dataset"]["additional_kwargs"]
 
-    kwargs_values={}
-    for key in additional_kwargs:
-        df_key = config["dataset"]["kwargs_values"][key]
-        print(df_key," has the following number of entries ",len(onp.array(df[df_key])))
-        kwargs_values[key] = onp.array(df[df_key])[mask_exists&mask_cut]
+    if "additional_kwargs" in config["dataset"].keys():
+        additional_kwargs = config["dataset"]["additional_kwargs"]
+        kwargs_values={}
+        for key in additional_kwargs:
+            df_key = config["dataset"]["kwargs_values"][key]
+            print(df_key," has the following number of entries ",len(onp.array(df[df_key])))
+            kwargs_values[key] = onp.array(df[df_key])[mask_exists&mask_cut]
+
+    else:
+        additional_kwargs = ["none"]
+        kwargs_values={"none":onp.ones(len(df))[mask_exists&mask_cut]}
 
     ds = SimpleDataset(input_data,flux_vars,sample_weights,additional_kwargs,kwargs_values)
 
