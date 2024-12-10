@@ -283,8 +283,7 @@ def main(config,
                         make_weighted_hist=plot_hists,
                         make_2D_scatter=plot_2D_scatter,
                         galactic=plot_galactic,
-                        make_2D_scatter_galactic=plot_2D_scatter&plot_galactic,
-                        galactic_contour_path="/home/saturn/capn/capn105h/data/cringe_contour.npz")
+                        make_2D_scatter_galactic=plot_2D_scatter&plot_galactic,)
 
     run_inference = False
 
