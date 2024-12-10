@@ -147,54 +147,13 @@ def main(config,
 
 
 
-    #net_params_mask = tree_map(lambda _: 1 - _, bin_params_mask)
-
-
     pipe = obj.get_optimization_pipeline()
-    #pipe = jit(pipe)
-
-    
-
-    #training loop
-
-    """print("--- Start data hist test ---")
-
-    import time
-    # Start time
-    start_time = time.time()
-
-    # Run the function
-    dl = DataLoader(dataset=ds,
-                    batch_size=len(ds),
-                    num_workers=0,
-                    shuffle=shuffle,
-                    drop_last=drop_last)
-    
-    input_data, aux, sample_weights, kwargs = next(iter(dl_))
-    input_data = Array(input_data)
-    for key in aux.keys():
-                aux[key] = Array(aux[key])
-    input_data = BESTIE.data.fourier_feature_mapping.input_mapping(input_data,B)
-    obj.calc_data_hist(init_params,input_data,aux,Array(list(injected_params.values())))
-    print(obj.data_hist)
-
-    # End time
-    end_time = time.time()
-
-    # Time taken
-    execution_time = end_time - start_time
-    print(f"Time taken by the function: {execution_time} seconds")
-    print(f"Time taken by the function: {execution_time} seconds")
-
-    print("--- Test done ---")
-    quit()"""
 
     history = []
     history_steps = []
     lr_epochs = []
     number_of_bins = []
 
-    #total_weight = obj.calc_weights(injected_params,)
 
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         running_loss = 0
@@ -258,14 +217,13 @@ def main(config,
 
             
             history_steps.append(loss)
-            pbar.set_description(f"loss: {loss:,.6g} ; number of bins: {config['hists']['bins_number']*nn.sigmoid(state.params['scale']):,.6g}")
+            pbar.set_description(f"loss: {loss:,.6g} ; number of bins: {config['hists']['bins_number']*2*nn.sigmoid(state.params['scale']):,.6g}")
             running_loss += loss
 
         if config["training"]["average_gradients"]:
 
 
             average_grads = BESTIE.utilities.jax_utils.scale_pytrees(1/len(it_dl),collected_grads)
-            #print(average_grads)
 
             grads_net_params = BESTIE.utilities.jax_utils.apply_mask(average_grads,train_mask)
             state = state.apply_gradients(grads=grads_net_params)
