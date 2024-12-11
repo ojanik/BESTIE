@@ -48,7 +48,7 @@ class AnalysisPipeline():
         weights = self.calc_weights(injected_params,aux)
         if sample_weights is not None:
                 sample_weights = jnp.reshape(sample_weights,weights.shape)
-                weights *= (1e6/(jnp.sum(1/sample_weights)) / sample_weights)
+                weights /= sample_weights
         hist = self.calc_hist(lss, weights=weights)
 
         return hist

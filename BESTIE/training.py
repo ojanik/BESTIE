@@ -11,6 +11,8 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from functools import partial
 
+import pandas as pd
+
 import yaml
 
 import argparse
@@ -57,9 +59,17 @@ def main(config,
 
     print("--------------------- Loading and preparing data ---------------------")
     # function to calculate the weights 
-    #weighter = partial(obj.calc_weights,injected_params)
-    ds, sample_weights = BESTIE.data.make_torch_dataset(config,weighter=None)
+    
+    df = pd.read_parquet(config["dataset"]["dataframe"])
+
+    # Save one entry of the dataframe which will be needed to build the weight graph
+    df_one = df[:1]
+
+    df_one.to_parquet(os.path.join(config["save_dir"],"df_one.parquet"))
     obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
+    weighter = partial(obj.calc_weights,injected_params)
+    ds, sample_weights, tot_norm_weight = BESTIE.data.make_torch_dataset(config,df,weighter=weighter)
+    tot_norm_weight = Array(tot_norm_weight)
     sampler = None
     shuffle = True
     drop_last = True
@@ -162,19 +172,22 @@ def main(config,
         
 
         pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=not trainstep_pbar)
-        for i,(data,aux,sample_weights,kwargs) in pbar:
+        for i,(data,aux,sample_weights,norm_weights,kwargs) in pbar:
             data = Array(data)
             
             data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
             #sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
-            sample_weights = Array(sample_weights) if sample else None
+            sample_weights = Array(sample_weights)
+            norm_weights = Array(norm_weights)
+            
+            sample_weights = Array(sample_weights* jnp.sum(norm_weights/sample_weights)/tot_norm_weight) if sample else None
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
             for key in kwargs.keys():
                 kwargs[key] = Array(kwargs[key])
 
-            kwargs["phi0"] = obj.net.apply({"params":init_params},data)[:,0]
+            #kwargs["phi0"] = obj.net.apply({"params":init_params},data)[:,0]
 
             #print(kwargs)
             #quit()

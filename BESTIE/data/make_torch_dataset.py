@@ -11,16 +11,11 @@ from BESTIE.utilities import parse_yaml
 from BESTIE.data import SimpleDataset, create_input_data, calc_bin_idx#, calc_bin_idx_general
 
 
-def make_torch_dataset(config,weighter=None):
+def make_torch_dataset(config,df,weighter=None):
 
     # TODO implement use of weighter to caclulate expected weights
 
-    df = pd.read_parquet(config["dataset"]["dataframe"])
-
-    # Save one entry of the dataframe which will be needed to build the weight graph
-    df_one = df[:1]
-
-    df_one.to_parquet(os.path.join(config["save_dir"],"df_one.parquet"))
+    
 
 
     input_data, mask_exists, mask_cut = create_input_data(df,config["dataset"])
@@ -77,6 +72,17 @@ def make_torch_dataset(config,weighter=None):
         additional_kwargs = ["none"]
         kwargs_values={"none":onp.ones(len(df))[mask_exists&mask_cut]}
 
-    ds = SimpleDataset(input_data,flux_vars,sample_weights,additional_kwargs,kwargs_values)
+    if weighter is not None:
+        aux_jarr = {}
+        for key in flux_vars.keys():
+                aux_jarr[key] = Array(flux_vars[key])
 
-    return ds, sample_weights
+        norm_weights = onp.array(weighter(aux_jarr))
+
+    tot_norm_weight = onp.sum(norm_weights)
+
+    ds = SimpleDataset(input_data,flux_vars,sample_weights,norm_weights,additional_kwargs,kwargs_values)
+
+
+
+    return ds, sample_weights, tot_norm_weight
