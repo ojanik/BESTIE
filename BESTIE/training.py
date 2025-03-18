@@ -32,9 +32,9 @@ def main(config,
 
     from datetime import datetime
 
-    
+    assert len(config["loss"]["signal_idx"]) == len(config["loss"]["weight_norm"])
 
-    # Get the current date and time
+    # Get the current date and time for file naming
     now = datetime.now()
 
     # Format the date and time as a string
@@ -54,17 +54,15 @@ def main(config,
 
 
     print(list(injected_params.keys()))
-    # Creating Pipeline Object
+
     
 
     print("--------------------- Loading and preparing data ---------------------")
-    # function to calculate the weights 
     
     df = pd.read_parquet(config["dataset"]["dataframe"])
-
+    config["dataset"]["length"] = int(len(df))
     # Save one entry of the dataframe which will be needed to build the weight graph
     df_one = df[:1]
-
     df_one.to_parquet(os.path.join(config["save_dir"],"df_one.parquet"))
 
     # Creating Pipeline Object
@@ -76,16 +74,17 @@ def main(config,
     shuffle = True
     drop_last = True
 
+    # If True the dataset will be sampled to have the same number of samples in each bin
+    # If False the dataset will be uniformly sampled
     if sample:
         from torch.utils.data import WeightedRandomSampler
-        #sample_weights = torch.load(config["sample_weights_path"])
-        sampler = WeightedRandomSampler(weights=sample_weights,num_samples=config["training"]["batch_size"],replacement=False)
-
         assert len(ds) == len(sample_weights)
+        sampler = WeightedRandomSampler(weights=sample_weights,num_samples=config["training"]["batch_size"],replacement=False)
 
         shuffle = False
         drop_last = False
-    batches_per_epoch = config["training"]["batches_per_epoch"]#int(jnp.floor(len(ds)/config["training"]["batch_size"]))
+
+    batches_per_epoch = config["training"]["batches_per_epoch"]
 
     if config["training"]["average_gradients"]:
         update_steps_per_epoch = 1
@@ -100,79 +99,93 @@ def main(config,
                     sampler=sampler)
 
 
-    #config["weights"]["upscale"] = len(ds)/config["training"]["batch_size"]
-
     
 
     rng = random.key(config["rng"])
     
-    input_size = len(config["dataset"]["input_vars"])
+
+    # Creates the Fourier Feature Mapping
     B = BESTIE.data.fourier_feature_mapping.get_B(config["dataset"])
     if B is not None:
         input_size = 2 * int(config["dataset"]["fourier_feature_mapping"]["mapping_size"])
+    else:
+        input_size = len(config["dataset"]["input_vars"])
 
     print(f"--- The network has an input size of {input_size} ---")
 
     result_dict["ffm"] = {}
     result_dict["ffm"]["B"] = B
+
+    print("--------------------- Initializing network ---------------------")
+    # Initialize the network parameters
     init_params = obj.net.init(rng,jnp.ones(input_size))["params"]
-    
+    # Initialize the scale parameter to 0 which is needed for the number of bins
+    # 0 corresponds to the number of bins which is set in the config
     init_params["scale"] = 0.
 
     result_dict["init_params"] = init_params
 
-    it_dl = dl
-
+    
+    # If True sample batches_per_epoch times the first batch of the dataloader
     if sample:
         it_dl = [list(dl)[0] for i in range(batches_per_epoch)]
+    else:
+        it_dl = dl
 
-    if train_for_shape:
-        print("--- Training for shape --")
-        init_params = BESTIE.train_shape(obj.net,init_params,it_dl,config)
-        result_dict["shape_params"] = init_params
-        jnp.save(os.path.join(save_dir,"result.pickle"),result_dict,allow_pickle=True)
-
-    ########################################################################################################################################
-
-    print(100*"-")
-    #setup train state
+    # Set up learning rate scheduling
     lr_fn = BESTIE.nets.lr_handler(config,update_steps_per_epoch)
 
+    # Set up optimizer for network parameters
     tx = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr_fn)
 
+    # Create state for network parameters
     state = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
                                           tx=tx)
 
+    # Define learning rate scheduling for bin training TODO: also implement this in the config
+    def lr_fn_bins(*args,**kwargs):
+        return lr_fn(*args,**kwargs)*1e3
+
+    # Set up optimizer for bin parameters
+    tx_bins = getattr(optax,config["training"]["optimizer"].lower())(learning_rate = lr_fn_bins) 
+
+    # Setup state for bin parameters
+    # Could this be combined with the state for the network parameters? The problem is the different learning rates
     state_bins = train_state.TrainState.create(apply_fn=obj.net.apply,
                                           params=init_params,
-                                          tx=tx)
-
-    #state_bins = train_state.TrainState.create(apply_fn=obj.net.apply,
-    #                                           params=init_params,
-    #                                           tx=tx)
+                                          tx=tx_bins)
     
+    # Create masks for the network and bin parameters
     train_mask = tree_map(lambda _: jnp.ones_like(_), init_params)
-    train_mask["scale"] = 0
+    train_mask["scale"] = False
 
     bins_mask = tree_map(lambda _: jnp.zeros_like(_),init_params)
+    assert isinstance(config["training"]["train_number_of_bins"],bool)
     bins_mask["scale"] = config["training"]["train_number_of_bins"]
 
 
-
+    # Build optimization pipeline
     pipe = obj.get_optimization_pipeline()
 
+    # Create empty arrays to store the history of the training
     history = []
     history_steps = []
+    history_losses = []
     lr_epochs = []
     number_of_bins = []
 
+    running_losses_shape = len(config["loss"]["method"])
 
+    # Start training loop
+    # Loop over epochs
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
+        # Reset running loss if average gradients are used
         running_loss = 0
+        running_single_losses = Array(running_losses_shape*[0.])
 
         
-
+        # Loop over batches
         pbar = tqdm(enumerate(it_dl), total=len(it_dl),disable=not trainstep_pbar)
         for i,(data,aux,sample_weights,norm_weights,kwargs) in pbar:
             data = Array(data)
@@ -180,32 +193,17 @@ def main(config,
             data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
             #sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
             sample_weights = Array(sample_weights)
-            norm_weights = Array(norm_weights)
+            norm_weights = jnp.squeeze(Array(norm_weights))
             
+
             sample_weights = Array(sample_weights* jnp.sum(norm_weights/sample_weights)/tot_norm_weight) if sample else None
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
             for key in kwargs.keys():
                 kwargs[key] = Array(kwargs[key])
-
-            #kwargs["phi0"] = obj.net.apply({"params":init_params},data)[:,0]
-
-            #print(kwargs)
-            #quit()
-
-            """lss = obj.get_lss(state.params,data)
-
-            hist = obj.get_hist(lss,Array(list(injected_params.values())),aux,sample_weights=sample_weights)
-
-            print(hist.sum())
-            continue"""
-
-            #ap = obj.get_analysis_pipeline()
-            #llh = ap(Array(list(injected_params.values())),lss,aux,hist)
-            #print(llh)
-
-            loss, grads = value_and_grad(pipe)(state.params,
+        
+            ((loss, losses), grads) = value_and_grad(pipe,has_aux=True)(state.params,
                                                injected_params=Array(list(injected_params.values())),
                                                data=data,
                                                aux=aux,
@@ -228,13 +226,15 @@ def main(config,
                 state = state.apply_gradients(grads=grads_net_params)
                 grads_bins = BESTIE.utilities.jax_utils.apply_mask(grads,bins_mask)
                 state_bins = state_bins.apply_gradients(grads=grads_bins)
+                state.params["scale"] = state_bins.params["scale"]
 
             
 
             
             history_steps.append(loss)
-            pbar.set_description(f"loss: {loss:,.6g} ; number of bins: {config['hists']['bins_number']*2*nn.sigmoid(state.params['scale']):,.6g}")
+            pbar.set_description(f"loss: {loss:,.6g}; losses: {[f'{l:,.2f}' for l in losses]} ; number of bins: {config['hists']['bins_number']*2*nn.sigmoid(state.params['scale']):,.6g}")
             running_loss += loss
+            running_single_losses += losses
 
         if config["training"]["average_gradients"]:
 
@@ -245,14 +245,16 @@ def main(config,
             state = state.apply_gradients(grads=grads_net_params)
             grads_bins = BESTIE.utilities.jax_utils.apply_mask(average_grads,bins_mask)
             state_bins = state_bins.apply_gradients(grads=grads_bins)
-
+            state.params["scale"] = state_bins.params["scale"]
             collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,collected_grads)
 
         lr = lr_fn(state.step)
         lr_epochs.append(lr)
         
         avg_loss = running_loss / batches_per_epoch
+        avg_single_losses = running_single_losses / batches_per_epoch
         history.append(avg_loss)
+        history_losses.append(avg_single_losses)
         number_of_bins.append(config['hists']['bins_number']*nn.sigmoid(state.params['scale']))
 
         tpbar.set_description(f"epoch loss: {avg_loss:.9f}")
@@ -278,17 +280,19 @@ def main(config,
         ax2 = ax.twinx()
 
         ax.scatter(jnp.arange(len(history)),history,color="blue",label="loss")
+        for i in range(running_losses_shape):
+            ax.scatter(jnp.arange(len(history)),jnp.array(history_losses)[:,i],label=f"loss_{i}")
         ax2.scatter(jnp.arange(len(history)),number_of_bins,color="red",label="number of bins")
         ax2.set_ylabel("number of bins")
         ax.set_xlabel("epoch")
         ax.set_ylabel("loss")
         ax.set_yscale("log")
         plt.tight_layout()
-        plt.legend()
+        ax.legend()
+        ax2.legend()
         plt.savefig(os.path.join(save_dir,"loss_curve.png"),dpi=256)
         plt.close()
 
-        #jax.profiler.save_device_memory_profile("memory.prof")    
 
     if plot_hists or plot_2D_scatter:
         from BESTIE.utilities import plot_routine
@@ -340,22 +344,5 @@ if __name__ == "__main__":
             plot_hists=args.plot_hists,
             plot_2D_scatter=args.plot_2D_scatter,
             plot_galactic=args.plot_galactic)
-
-
-    """wide_layer = {"layer":"Dense","size":1650,"activation":"relu"}
-
-    for i in range(5):
-        
-        
-        name = f"MSU_bkde_lin_{i}_wide_layers"
-        print(f"Now training {name}")
-        main(config=config, 
-            output_dir=args.output_dir, 
-            name=name,
-            train_for_shape=args.train_for_shape,
-            sample=args.sample,
-            no_trainstep_pbar=args.no_trainstep_pbar)
-        
-        config["network"]["hidden_layers"].insert(len(config["network"]["hidden_layers"])-1,wide_layer)"""
         
     print("DONE")

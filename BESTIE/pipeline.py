@@ -37,24 +37,26 @@ class AnalysisPipeline():
     def _set_analysis_pipeline(self):
 
         #@jit
-        def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None,skip_llh=False,**kwargs):
-            hist = self.get_hist(lss,injected_params_values,aux,sample_weights)
+        def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None,skip_llh=False,only_sample_weights=False,**kwargs):
+            mu, sigma = self.get_hist(lss,injected_params_values,aux,sample_weights,only_sample_weights)
             if skip_llh:
-                return hist
-            llh = self.calc_llh(data_hist,hist) 
+                return mu, sigma
+            llh = self.calc_llh(data_hist,mu) 
             llh = llh.sum() / self.config["hists"]["bins_number"]
-            return llh  
+            return llh, sigma
         self._analysis_pipeline = analysis_pipeline
 
-    def get_hist(self,lss,injected_params,aux,sample_weights=None):
+    def get_hist(self,lss,injected_params,aux,sample_weights=None,only_sample_weights=False):
         injected_params = dict(zip(self.injected_parameter_keys,injected_params))
         weights = self.calc_weights(injected_params,aux)
         if sample_weights is not None:
                 sample_weights = jnp.reshape(sample_weights,weights.shape)
                 weights /= sample_weights
-        hist = self.calc_hist(lss, weights=weights)
+        if only_sample_weights:
+            weights = sample_weights
+        mu, sigma = self.calc_hist(lss, weights=weights)
 
-        return hist
+        return mu, sigma
 
 from .nets import model_handler
 from .losses import loss_handler
