@@ -52,7 +52,7 @@ def bKDE(
     # sum kde contributions in each bin
     counts = (cdf[1:, :] - cdf[:-1, :]).sum(axis=1)
 
-    calc_sigma = False # TODO add implementation of SAY likelihood, then activate this
+    calc_sigma = True # TODO add implementation of SAY likelihood, then activate this
 
     if calc_sigma:
         sigma = ((cdf[1:, :] - cdf[:-1, :])**2).sum(axis=1)
@@ -78,4 +78,4 @@ def bKDE(
         return counts, sigma
     
     else:
-        return counts
+        return counts, None
