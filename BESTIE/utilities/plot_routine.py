@@ -109,7 +109,7 @@ def plot_routine(model_path,
     #lss /= jnp.max(lss[mask][mask2])
     print("Creating pipeline object")
     injected_params = config["injected_params"]
-    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
+    obj = BESTIE.Optimization_Pipeline(config)
     print("Pipeline object created")
     print("lss: ",lss)
     print("lss_0: ",kwargs["lss0"])
@@ -123,6 +123,7 @@ def plot_routine(model_path,
         ax.set_yscale("log")
         ax.set_ylabel("loss")
         ax.set_xlabel("training step")
+        
         plt.savefig(os.path.join(model_path,"trainstep_loss_curve.png"),dpi=256)
         plt.close()
 
@@ -158,6 +159,7 @@ def plot_routine(model_path,
         ax.set_ylabel("events")
         ax.set_axisbelow(True)
         ax.set_xlim(onp.min(hvar),onp.max(hvar))
+        ax.set_ylim(1e-5, None)
         #ax.set_xscale("log")
         plt.legend()
         plt.savefig(os.path.join(model_path,"weighted_hist.png"),dpi=256)
@@ -268,14 +270,13 @@ def plot_routine(model_path,
         ani.save(os.path.join(model_path,"2D_scatter.gif"), writer='pillow', fps=frame_rate)
         plt.close()
 
-    if save_to is not None:
-        df.insert(3,"lss",onp.array(lss))
-        df.to_hdf(save_to,key="a")
-        print(f"Saved dataframe with lss at {save_to}")
-
-    if save_df:
-
+    if save_df or save_to is not None:
         print("--- Saving dataframe with updated lss values ---")
+        if save_to is not None:
+            dataframe = save_to
+            _,ext = os.path.splitext(dataframe)
+
+        
 
         assert len(df)==len(mask)
         df["lss"] = -1.
@@ -284,6 +285,6 @@ def plot_routine(model_path,
         if ext[1:].lower() in ["parquet"]:
             df.to_parquet(dataframe)
         elif ext[1:].lower() in ["hdf","hd5"]:
-            df.to_hdf(dataframe,key="a")
+            df.to_hdf(dataframe)
         
         print(f"--- Saved dataframe at {dataframe} ---")
