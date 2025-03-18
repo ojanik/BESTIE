@@ -89,8 +89,10 @@ def loss_handler(config):
         def loss(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
             return calc_scan_loss(llh,injected_params,lss,aux,data_hist,sample_weights,scan_parameter_idx=config["signal_idx"],**kwargs)
 
-    elif loss_method.lower()  in ["entries_per_bin"]:
+    if any(elem.lower() in ["bin_loss","say_loss"] for elem in loss_method):
         from .bin_loss import bin_loss
+        losses.append(bin_loss)
+        loss_kwargs["df_length"] = config["dataset"]["length"]
 
 
     else:
