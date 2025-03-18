@@ -14,9 +14,12 @@ from tqdm import tqdm
 import BESTIE
 
 class AnalysisPipeline():
-    def __init__(self,config,injected_parameter_keys):
+    def __init__(self,config):
         self.config = config
-        self.injected_parameter_keys = injected_parameter_keys
+        injected_params = config["injected_params"].copy()
+        for key in injected_params.keys():
+            injected_params[key] = Array(injected_params[key])
+        self.injected_parameter_keys =list(injected_params.keys())
 
         self._analysis_pipeline = None
         self.calc_weights = weight_handler(self.config)
@@ -57,15 +60,15 @@ from .nets import model_handler
 from .losses import loss_handler
 
 class Optimization_Pipeline(AnalysisPipeline):
-    def __init__(self,config,injected_parameter_keys):
-        super().__init__(config,injected_parameter_keys)
+    def __init__(self,config,):
+        super().__init__(config)
 
         self._optimization_pipeline = None
 
         self.model = model_handler(self.config)
         self.net = self.model()
 
-        self.calc_loss = loss_handler(self.config["loss"])
+        self.calc_loss = loss_handler(self.config)
 
         self._set_analysis_pipeline()
 
@@ -80,7 +83,8 @@ class Optimization_Pipeline(AnalysisPipeline):
         @jit
         def optimization_pipeline(net_params,injected_params,data,aux,sample_weights,**kwargs):
             lss = self.net.apply({"params":net_params},data)
-            lss = self.transform_fun(lss,**kwargs)
+            if self.config["hists"]["method"].lower() != "vector":
+                lss = self.transform_fun(lss,**kwargs)
             lss *= self.config["hists"]["bins_up"]
             if "scale" in net_params:
                 lss *= jax.nn.sigmoid(net_params["scale"])
@@ -90,7 +94,7 @@ class Optimization_Pipeline(AnalysisPipeline):
             #data_hist = self.data_hist
             loss = self.calc_loss(self._analysis_pipeline,injected_params,lss,aux,data_hist,sample_weights,**kwargs)
 
-            return loss
+            return jnp.sum(loss), loss
         self._optimization_pipeline = optimization_pipeline
 
     def get_lss(self, net_params,data):

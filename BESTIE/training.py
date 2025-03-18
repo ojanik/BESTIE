@@ -66,7 +66,9 @@ def main(config,
     df_one = df[:1]
 
     df_one.to_parquet(os.path.join(config["save_dir"],"df_one.parquet"))
-    obj = BESTIE.Optimization_Pipeline(config,list(injected_params.keys()))
+
+    # Creating Pipeline Object
+    obj = BESTIE.Optimization_Pipeline(config) #,list(injected_params.keys())
     weighter = partial(obj.calc_weights,injected_params)
     ds, sample_weights, tot_norm_weight = BESTIE.data.make_torch_dataset(config,df,weighter=weighter)
     tot_norm_weight = Array(tot_norm_weight)
