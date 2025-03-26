@@ -5,6 +5,13 @@ import torch
 class SimpleDataset(Dataset):
     def __init__(self,input_data,flux_vars,sample_weights,norm_weights,additional_kwargs=[],kwargs_values=[]):
         
+        assert len(input_data) == len(sample_weights)
+        assert len(input_data) == len(norm_weights)
+        #assert len(input_data) == len(fluxless_weights)
+
+        for key in flux_vars.keys():
+            assert len(input_data) == len(flux_vars[key])
+
         self.input_data = input_data
         self.flux_vars = flux_vars
         self.sample_weights = sample_weights
@@ -13,6 +20,7 @@ class SimpleDataset(Dataset):
         self.additional_kwargs = additional_kwargs
         self.kwargs_values = kwargs_values
         
+
     def __getitem__(self, idx):
         #data = {"reco_energy": self.data["energy_truncated"][idx],
         #       "reco_zenith": self.data["zenith_MPEFit"][idx]}

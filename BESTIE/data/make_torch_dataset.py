@@ -19,9 +19,9 @@ def make_torch_dataset(config,df,weighter=None):
 
 
     input_data, mask_exists, mask_cut = create_input_data(df,config["dataset"])
-
+    input_data = input_data[mask_exists&mask_cut]
     print("NaNs in input data: ",jnp.isnan(input_data).sum())
-    print("input data only contains finite values: ",jnp.isfinite(input_data[mask_exists&mask_cut]).all())
+    print("input data only contains finite values: ",jnp.isfinite(input_data).all())
 
     print("Writting the following keys as input:")
     print([x["var_name"] for x in config["dataset"]["input_vars"]])
@@ -40,8 +40,8 @@ def make_torch_dataset(config,df,weighter=None):
     flux_vars = {}
 
     for flux_var in config["dataset"]["flux_vars"]:
-        dtemp = onp.array(df[flux_var])
-        dtemp = dtemp[mask_exists&mask_cut]
+        dtemp = onp.array(df[flux_var])[mask_exists&mask_cut]
+        dtemp = dtemp
         flux_vars[flux_var] = dtemp
 
     # NNMFit needs true_energy
@@ -57,7 +57,6 @@ def make_torch_dataset(config,df,weighter=None):
     
     print(flux_vars.keys())
 
-    input_data = input_data[mask_exists&mask_cut]
 
 
     if "additional_kwargs" in config["dataset"].keys():
