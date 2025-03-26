@@ -70,6 +70,7 @@ def main(config,
     obj = BESTIE.Optimization_Pipeline(config) #,list(injected_params.keys())
     weighter = partial(obj.calc_weights,injected_params)
     ds, sample_weights, tot_norm_weight = BESTIE.data.make_torch_dataset(config,df,weighter=weighter)
+    
     tot_norm_weight = Array(tot_norm_weight)
     sampler = None
     shuffle = True
@@ -123,6 +124,8 @@ def main(config,
     # Initialize the scale parameter to 0 which is needed for the number of bins
     # 0 corresponds to the number of bins which is set in the config
     init_params["scale"] = 0.
+    init_params["Bscale"] = 0. #this is on a log scale
+
 
     result_dict["init_params"] = init_params
 
@@ -160,10 +163,12 @@ def main(config,
     # Create masks for the network and bin parameters
     train_mask = tree_map(lambda _: jnp.ones_like(_), init_params)
     train_mask["scale"] = False
+    train_mask["Bscale"] = False
 
     bins_mask = tree_map(lambda _: jnp.zeros_like(_),init_params)
     assert isinstance(config["training"]["train_number_of_bins"],bool)
     bins_mask["scale"] = config["training"]["train_number_of_bins"]
+    bins_mask["Bscale"] = True
 
 
     # Build optimization pipeline
@@ -191,7 +196,7 @@ def main(config,
         for i,(data,aux,sample_weights,norm_weights,kwargs) in pbar:
             data = Array(data)
             
-            data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
+            
             #sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
             sample_weights = Array(sample_weights)
             #norm_weights = jnp.squeeze(Array(norm_weights))
@@ -203,13 +208,22 @@ def main(config,
 
             for key in kwargs.keys():
                 kwargs[key] = Array(kwargs[key])
-        
-            ((loss, losses), grads) = value_and_grad(pipe,has_aux=True)(state.params,
+
+            @jit 
+            def l(params):
+                if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
+                    Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,params["Bscale"])
+                else: 
+                    Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,config["dataset"]["fourier_feature_mapping"]["scale"])
+                loss, losses = pipe(params,
                                                injected_params=Array(list(injected_params.values())),
-                                               data=data,
+                                               data=Bdata,
                                                aux=aux,
                                                sample_weights=sample_weights,
                                                **kwargs)
+                return loss, losses
+
+            ((loss, losses), grads) = value_and_grad(l,has_aux=True)(state.params)
             
             
 
@@ -228,12 +242,13 @@ def main(config,
                 grads_bins = BESTIE.utilities.jax_utils.apply_mask(grads,bins_mask)
                 state_bins = state_bins.apply_gradients(grads=grads_bins)
                 state.params["scale"] = state_bins.params["scale"]
+                state.params["Bscale"] = state_bins.params["Bscale"]
 
             
 
             
             history_steps.append(loss)
-            pbar.set_description(f"loss: {loss:,.6g}; losses: {[f'{l:,.2f}' for l in losses]} ; number of bins: {config['hists']['bins_number']*2*nn.sigmoid(state.params['scale']):,.6g}")
+            pbar.set_description(f"loss: {loss:,.6g}; losses: {[f'{l:,.2f}' for l in losses]} ; Bscale: {state.params['Bscale']:,.7f};number of bins: {config['hists']['bins_number']*2*nn.sigmoid(state.params['scale']):,.6g}")
             running_loss += loss
             running_single_losses += losses
 
@@ -247,6 +262,7 @@ def main(config,
             grads_bins = BESTIE.utilities.jax_utils.apply_mask(average_grads,bins_mask)
             state_bins = state_bins.apply_gradients(grads=grads_bins)
             state.params["scale"] = state_bins.params["scale"]
+            state.params["Bscale"] = state_bins.params["Bscale"]
             collected_grads = BESTIE.utilities.jax_utils.scale_pytrees(0.,collected_grads)
 
         lr = lr_fn(state.step)
