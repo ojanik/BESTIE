@@ -8,7 +8,7 @@ Array = jnp.array
 import os
 
 from BESTIE.utilities import parse_yaml
-from BESTIE.data import SimpleDataset, create_input_data, calc_bin_idx#, calc_bin_idx_general
+from BESTIE.data import SimpleDataset, create_input_data, calc_bin_idx, compute_knn_weights
 
 
 def make_torch_dataset(config,df,weighter=None):
@@ -26,15 +26,22 @@ def make_torch_dataset(config,df,weighter=None):
     print("Writting the following keys as input:")
     print([x["var_name"] for x in config["dataset"]["input_vars"]])
 
-    bin_idx = calc_bin_idx(input_data[mask_exists&mask_cut])
+    # bin_idx = calc_bin_idx(input_data)
 
-    counts = onp.bincount(bin_idx)
+    # counts = onp.bincount(bin_idx)
 
-    sample_weights = 1/counts[bin_idx]
+    # sample_weights = 1/counts[bin_idx]
+
+    sample_weights = compute_knn_weights(input_data)
+
+    #sample_weights = onp.array(df["fluxless_weight"])[mask_exists&mask_cut]
 
     sample_weights /= onp.sum(sample_weights)
 
-    sample_weights = torch.tensor(sample_weights)
+    
+
+    #sample_weights = torch.tensor(sample_weights)
+
 
 
     flux_vars = {}
@@ -79,6 +86,8 @@ def make_torch_dataset(config,df,weighter=None):
         norm_weights = onp.array(weighter(aux_jarr))
 
     tot_norm_weight = onp.sum(norm_weights)
+
+    #fluxless_weights = onp.array(df["fluxless_weight"])[mask_exists&mask_cut]
 
     ds = SimpleDataset(input_data,flux_vars,sample_weights,norm_weights,additional_kwargs,kwargs_values)
 
