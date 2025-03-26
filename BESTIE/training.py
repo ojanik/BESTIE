@@ -60,12 +60,13 @@ def main(config,
     print("--------------------- Loading and preparing data ---------------------")
     
     df = pd.read_parquet(config["dataset"]["dataframe"])
-    config["dataset"]["length"] = int(len(df))
+    
     # Save one entry of the dataframe which will be needed to build the weight graph
     df_one = df[:1]
     df_one.to_parquet(os.path.join(config["save_dir"],"df_one.parquet"))
 
     # Creating Pipeline Object
+    config["dataset"]["length"] = int(len(df))
     obj = BESTIE.Optimization_Pipeline(config) #,list(injected_params.keys())
     weighter = partial(obj.calc_weights,injected_params)
     ds, sample_weights, tot_norm_weight = BESTIE.data.make_torch_dataset(config,df,weighter=weighter)
@@ -193,10 +194,10 @@ def main(config,
             data = BESTIE.data.fourier_feature_mapping.input_mapping(data,B)
             #sample_weights = (1-(1-Array(sample_weights))**config["training"]["batch_size"])/config["weights"]["upscale"] if sample else None
             sample_weights = Array(sample_weights)
-            norm_weights = jnp.squeeze(Array(norm_weights))
+            #norm_weights = jnp.squeeze(Array(norm_weights))
             
 
-            sample_weights = Array(sample_weights* jnp.sum(norm_weights/sample_weights)/tot_norm_weight) if sample else None
+            sample_weights = Array(1/sample_weights / jnp.sum(1/sample_weights) * int(len(ds))) if sample else None
             for key in aux.keys():
                 aux[key] = Array(aux[key])
 
