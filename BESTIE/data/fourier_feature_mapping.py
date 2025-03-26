@@ -1,12 +1,14 @@
 from jax import random
 import numpy as onp
+import jax.numpy as jnp
 
-def input_mapping(x, B):
+def input_mapping(x, B, logscale=0.):
   if B is None:
     return x
   else:
-    x_proj = (2.*onp.pi*x) @ B.T
-    return onp.concatenate([onp.sin(x_proj), onp.cos(x_proj)], axis=-1)
+    B = B * (10**logscale)
+    x_proj = (2.*jnp.pi*x) @ B.T
+    return jnp.concatenate([jnp.sin(x_proj), jnp.cos(x_proj)], axis=-1)
 
 def get_B(config):
   
