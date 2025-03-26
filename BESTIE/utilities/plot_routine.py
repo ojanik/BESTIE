@@ -63,7 +63,11 @@ def plot_routine(model_path,
     print("--- Calculating lss ---")
     for i in tqdm(range(num_parts),disable=True):
         batched_input_data = input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:len(config["dataset"]["input_vars"])]
-        batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B)
+        if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
+            scale = params["Bscale"]
+        else:
+            scale = config["dataset"]["fourier_feature_mapping"]["scale"]
+        batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B,scale)
         if i == 0:
             lss = apply_fn({"params": params},batched_input_data)[:,0]
         else:
