@@ -11,7 +11,8 @@ def bKDE(
     lss: Array,
     bins: Array,
     bandwidth: float,  # | None = None,
-    weights: Array,
+    mu_weights: Array,
+    ssq_weights: Array,
     density: bool = False,
     reflect_infinities: bool = True,
 ) -> Array:
@@ -46,16 +47,18 @@ def bKDE(
     # get cumulative counts (area under kde) for each set of bin edges
 
     cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=lss, scale=bandwidth)
-    weights = weights.squeeze()
-    cdf *= weights
+    mu_weights = mu_weights.squeeze()
+    mu_cdf = cdf * mu_weights
     #cdf /= weights.sum()
     # sum kde contributions in each bin
-    counts = (cdf[1:, :] - cdf[:-1, :]).sum(axis=1)
+    counts = (mu_cdf[1:, :] - mu_cdf[:-1, :]).sum(axis=1)
 
     calc_sigma = True # TODO add implementation of SAY likelihood, then activate this
 
     if calc_sigma:
-        sigma = ((cdf[1:, :] - cdf[:-1, :])**2).sum(axis=1)
+        ssq_weights = ssq_weights.squeeze()
+        ssq_cdf = cdf * ssq_weights
+        sigma = ((ssq_cdf[1:, :] - ssq_cdf[:-1, :])).sum(axis=1)
 
     if density:  # normalize by bin width and counts for total area = 1
         db = jnp.array(jnp.diff(bins), float)  # bin spacing
