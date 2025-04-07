@@ -17,7 +17,7 @@ def get_B(config):
   if "fourier_feature_mapping" in config:
 
     input_size = len(config["input_vars"])
-    mapping_size = config["fourier_feature_mapping"]["mapping_size"]
+    mapping_size = config["fourier_feature_mapping"]["mapping_size" ]
 
     method = config["fourier_feature_mapping"]["method"]
 
