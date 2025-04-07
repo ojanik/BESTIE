@@ -10,6 +10,11 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from functools import partial
+import jax 
+from jax.profiler import start_trace, stop_trace
+
+
+import time
 
 import pandas as pd
 
@@ -181,10 +186,27 @@ def main(config,
     lr_epochs = []
     number_of_bins = []
 
-    running_losses_shape = len(config["loss"]["method"])
+    # Define the loss function
+    @jit 
+    def l(params,data,aux,sample_weights,**kwargs):
+        if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
+            Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,params["Bscale"])
+        else: 
+            Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,config["dataset"]["fourier_feature_mapping"]["scale"])
+        loss, losses = pipe(params,
+                                        injected_params=Array(list(injected_params.values())),
+                                        data=Bdata,
+                                        aux=aux,
+                                        sample_weights=sample_weights,
+                                        **kwargs)
+        return loss, losses
 
+    running_losses_shape = len(config["loss"]["method"])
+    end_time = time.time()
     # Start training loop
     # Loop over epochs
+    #trace_i = 0
+    #start_trace('/home/saturn/capn/capn105h/trace')
     for j in (tpbar:= tqdm(range(config["training"]["epochs"]))):
         # Reset running loss if average gradients are used
         running_loss = 0
@@ -209,23 +231,8 @@ def main(config,
             for key in kwargs.keys():
                 kwargs[key] = Array(kwargs[key])
 
-            @jit 
-            def l(params):
-                if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
-                    Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,params["Bscale"])
-                else: 
-                    Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,config["dataset"]["fourier_feature_mapping"]["scale"])
-                loss, losses = pipe(params,
-                                               injected_params=Array(list(injected_params.values())),
-                                               data=Bdata,
-                                               aux=aux,
-                                               sample_weights=sample_weights,
-                                               **kwargs)
-                return loss, losses
-
-            ((loss, losses), grads) = value_and_grad(l,has_aux=True)(state.params)
-            
-            
+            # Calc gradients of loss function
+            ((loss, losses), grads) = value_and_grad(l,has_aux=True)(state.params,data,aux,sample_weights,**kwargs)
 
             if jnp.isnan(loss):
                 raise ValueError("Loss is nan")
