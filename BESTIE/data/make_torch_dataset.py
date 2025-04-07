@@ -31,8 +31,16 @@ def make_torch_dataset(config,df,weighter=None):
     # counts = onp.bincount(bin_idx)
 
     # sample_weights = 1/counts[bin_idx]
-
-    sample_weights = compute_knn_weights(input_data)
+    if config["dataset"]["sample_weights"]["method"].lower() == "knn":
+        sample_weights = compute_knn_weights(input_data)
+    elif config["dataset"]["sample_weights"]["method"].lower() == "hist":
+        bin_idx = calc_bin_idx(input_data)
+        counts = onp.bincount(bin_idx)
+        sample_weights = 1/counts[bin_idx]
+    else: 
+        print("No sample weights selected. Using uniform sample weights")
+        sample_weights = onp.ones(len(df))[mask_exists&mask_cut]
+        sample_weights /= onp.sum(sample_weights)
 
     #sample_weights = onp.array(df["fluxless_weight"])[mask_exists&mask_cut]
 
