@@ -29,6 +29,8 @@ def loss_handler(config):
         loss_kwargs["opti"] = opti
         loss_kwargs["signal_idx"] = lconfig["signal_idx"]
         loss_kwargs["weight_norm"] = lconfig.get("weight_norm",None)
+        loss_kwargs["rel_uncertainty_threshold"] = lconfig["soft_masking"].get("rel_uncertainty_threshold",None)
+        loss_kwargs["mask_sharpness"] = lconfig["soft_masking"].get("mask_sharpness",None)
     
         if lconfig["fisher_method"].lower() in ["jacobian","expectation"]:
             from .fisher_losses import loss_fisher_jac
@@ -48,6 +50,7 @@ def loss_handler(config):
         from .bin_loss import bin_loss
         losses.append(bin_loss)
         loss_kwargs["df_length"] = config["dataset"]["length"]
+        loss_kwargs["threshold"] = config["loss"]["MC_statistics_threshold"]
 
     if len(losses)==0:
         raise NotImplementedError("No valid loss method selected")
