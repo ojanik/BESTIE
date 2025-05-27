@@ -1,4 +1,4 @@
-from torch.utils.data import Dataset
+"""from torch.utils.data import Dataset
 import torch
 
 
@@ -42,3 +42,4 @@ class SimpleDataset(Dataset):
     
     def __len__(self):
         return len(self.input_data)
+"""
