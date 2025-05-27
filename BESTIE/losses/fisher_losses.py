@@ -5,22 +5,63 @@ import jax
 import jax.numpy as jnp 
 from BESTIE.utilities import rearrange_matrix
 
+from jax import hessian
 
-def loss_fisher_jac(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
+from functools import partial
 
+def loss_fisher_jac(llh, injected_params, lss, aux, data_hist, sample_weights, **kwargs):
+    signal_idx = kwargs.pop("signal_idx")
+    opti = kwargs.pop("opti")
+    weight_norm = kwargs.pop("weight_norm", None)
+
+    # Optional soft masking hyperparameters
+    threshold = kwargs.pop("rel_uncertainty_threshold", None)  # e.g. 20% relative uncertainty
+    sharpness = kwargs.pop("mask_sharpness", None)           # how steep the sigmoid is
+    eps = 1e-8
+
+    # Get gradients and MC uncertainty terms
+    grads, sigma = jacfwd(llh, has_aux=True)(
+        injected_params, lss, aux, data_hist, sample_weights,
+        skip_llh=True, **kwargs
+    )
+    mu, sigma = llh(
+        injected_params, lss, aux, data_hist, sample_weights,
+        skip_llh=True, **kwargs
+    )
+
+    
+
+    # Compute per-bin Fisher information
+    fish_i = vmap(lambda g: jnp.outer(g, g))(grads)  # shape: (n_bins, n_params, n_params)
+    hist_counts = mu + eps
+    fish_i = fish_i / hist_counts[:, None, None]
+
+    if threshold is not None or sharpness is not None:
+        # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
+        rel_unc = jnp.sqrt(sigma + eps) / (mu + eps)
+        soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)  # shape: (n_bins,)
+        # Apply soft mask (broadcasted to matrix shape)
+        fish_i = fish_i * soft_mask[:, None, None]
+
+    # Sum over bins
+    fish = jnp.sum(fish_i, axis=0)  # shape: (n_params, n_params)
+
+    # Marginalize Fisher info
+    fish = rearrange_matrix(fish, signal_idx)
+    k = len(signal_idx)
+    A = fish[:k, :k]
+    B = fish[:k, k:]
+    C = fish[k:, k:]
+    C_inv = jnp.linalg.inv(C)
+    S = A - B @ C_inv @ B.T
+
+    return opti(S, weight_norm)
+
+def loss_fisher(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
     signal_idx = kwargs.pop("signal_idx")
     opti = kwargs.pop("opti")
     weight_norm = kwargs.pop("weight_norm",None)
-
-    grads, sigma = jacfwd(llh,has_aux=True)(injected_params,lss,aux,data_hist,sample_weights,skip_llh=True,**kwargs)
-    mu, sigma = llh(injected_params,lss,aux,data_hist,sample_weights,skip_llh=True,**kwargs)
-    fish_i = vmap(lambda g: jnp.outer(g, g))(grads)
-    hist_counts = mu + 1e-8#llh(injected_params,lss,aux,data_hist,sample_weights,skip_llh=True,**kwargs) + 1e-8
-    nonzero_hist_counts = hist_counts != 0
-    fish_i = jnp.where(nonzero_hist_counts[:, None, None],
-                        fish_i / hist_counts[:, None, None], 
-                        jnp.zeros(fish_i.shape))  # Shape: (1650, 11, 11)
-    fish = jnp.sum(fish_i, axis=0) 
+    fish = hessian(llh)(injected_params,lss,aux,data_hist,sample_weights,**kwargs)
 
     # marginalize fisher information
     fish = rearrange_matrix(fish, signal_idx)
@@ -31,32 +72,10 @@ def loss_fisher_jac(llh,injected_params,lss,aux,data_hist,sample_weights,**kwarg
 
     # Compute the inverse of C
     C_inv = jnp.linalg.inv(C)
-    
-    # Compute the Schur complement S = A - B * C_inv * B^T
-    S = A - B @ C_inv @ B.T
-
-    return opti(S,weight_norm)
-
-
-def loss_fisher(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
-    #grads = grad(llh)(injected_params,lss,aux,data_hist,sample_weights,**kwargs)
-    #fish = -1 * jnp.outer(grads,grads)
-    #jax.debug.print("fish grads: {fish}",fish=fish)
-    fish = hessian(llh)(injected_params,lss,aux,data_hist,sample_weights,**kwargs)
-
-    # marginalize fisher information
-    fish = rearrange_matrix(fish, lconfig["signal_idx"])
-    k = len(lconfig["signal_idx"])
-    A = fish[:k, :k]
-    B = fish[:k, k:]
-    C = fish[k:, k:]
-
-    # Compute the inverse of C
-    C_inv = onp.linalg.inv(C)
 
     # Compute the Schur complement S = A - B * C_inv * B^T
     S = A - B @ C_inv @ B.T
-
+    jax.debug.print("opti: {opti}", opti=opti(S,weight_norm))
     return opti(S)
 
 def calc_conv(fisher):
@@ -78,12 +97,6 @@ def A_optimality(fisher,weight_norm=None):
     else:
         trace = jnp.sum(jnp.sqrt(diag))
 
-    """else:
-        trace = 0
-        for idx in signal_idx:
-            trace += jnp.sqrt(diag.at[idx].get(mode='fill', fill_value=jnp.nan))
-
-    """
     loss = trace
 
     return loss
