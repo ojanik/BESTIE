@@ -38,9 +38,11 @@ class AnalysisPipeline():
 
     def _set_analysis_pipeline(self):
 
-        @partial(jax.jit, static_argnames=['skip_llh'])
+        @partial(jax.jit, static_argnames=['skip_llh','opti'])
         def analysis_pipeline(injected_params_values,lss,aux,data_hist,sample_weights=None,skip_llh=False,only_sample_weights=False,**kwargs):
             mu, sigma = self.get_hist(lss,injected_params_values,aux,sample_weights,only_sample_weights)
+            #mu = mu.sum(axis=0) +1e-6
+            #sigma = sigma.sum(axis=0) +1e-6
             if skip_llh:
                 return mu, sigma
             llh = self.calc_llh(data_hist,mu) 
@@ -85,15 +87,9 @@ class Optimization_Pipeline(AnalysisPipeline):
         return self._optimization_pipeline
 
     def _set_optimization_pipeline(self):
-        @jit
+        @partial(jit,static_argnames=["training"])
         def optimization_pipeline(net_params,injected_params,data,aux,sample_weights,**kwargs):
-            lss = self.net.apply({"params":net_params},data)
-            if self.config["hists"]["method"].lower() != "vector":
-                lss = self.transform_fun(lss,**kwargs)
-            lss *= self.config["hists"]["bins_up"]
-            if "scale" in net_params:
-                lss *= jax.nn.sigmoid(net_params["scale"])
-                lss *= 2
+            lss = self.calc_lss(net_params,data,**kwargs)
             #jax.debug.print("{x}",x=lss)
             data_hist, _ = self.get_hist(lss,injected_params,aux,sample_weights)
             #data_hist = self.data_hist
@@ -102,13 +98,14 @@ class Optimization_Pipeline(AnalysisPipeline):
             return jnp.sum(loss), loss
         self._optimization_pipeline = optimization_pipeline
 
-    def get_lss(self, net_params,data,**kwargs):
-        lss = self.net.apply({"params":net_params},data)#[:,0]
+    def calc_lss(self, net_params,data,training=True,drop_out_key=None,**kwargs):
+        lss = self.net.apply({"params":net_params},data,training=training,rngs={'dropout': drop_out_key})
         if self.config["hists"]["method"].lower() != "vector":
             lss = self.transform_fun(lss,**kwargs)
+        lss *= self.config["hists"]["bins_up"]
         if "scale" in net_params:
-                lss *= jax.nn.sigmoid(net_params["scale"])
-                lss *= 2
+            lss *= jax.nn.sigmoid(net_params["scale"])
+            lss *= 2
         return lss
     
     def get_loss(self,net_params,injected_params,data,aux,data_hist):
