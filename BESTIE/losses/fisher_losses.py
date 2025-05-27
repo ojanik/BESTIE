@@ -15,8 +15,8 @@ def loss_fisher_jac(llh, injected_params, lss, aux, data_hist, sample_weights, *
     weight_norm = kwargs.pop("weight_norm", None)
 
     # Optional soft masking hyperparameters
-    threshold = kwargs.pop("rel_uncertainty_threshold", None)  # e.g. 20% relative uncertainty
-    sharpness = kwargs.pop("mask_sharpness", None)           # how steep the sigmoid is
+    threshold = kwargs.pop("rel_uncertainty_threshold", 0.05)  # e.g. 20% relative uncertainty
+    sharpness = kwargs.pop("mask_sharpness", 200)           # how steep the sigmoid is
     eps = 1e-8
 
     # Get gradients and MC uncertainty terms
@@ -96,7 +96,6 @@ def A_optimality(fisher,weight_norm=None):
         trace = jnp.sum(jnp.sqrt(diag)/weight_norm)
     else:
         trace = jnp.sum(jnp.sqrt(diag))
-
     loss = trace
 
     return loss
