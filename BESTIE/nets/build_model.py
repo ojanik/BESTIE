@@ -1,9 +1,11 @@
-from . import build_jax
+def model_handler(config):
+    architecture = config["architecture"].lower()
 
-def build_model(config):
-    framework = config["framework"]
-
-    if framework.lower() == "pytorch":
-        raise NotImplementedError
-    if framework.lower() == "jax":
-        return build_jax.build_jax(config)
+    if architecture == "dense":
+        from . import build_jax_dense
+        return build_jax_dense(config)
+    elif architecture == "transformer":
+        from . import build_jax_transformer
+        return build_jax_transformer(config)
+    else:
+        raise ValueError(f"Unknown architecture: {architecture}")
