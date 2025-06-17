@@ -189,6 +189,11 @@ def main(config,
     # Define the loss function
     @jit 
     def l(params,data,aux,sample_weights,**kwargs):
+        data = data[:50000]
+        kwargs = jnp.ones(data.shape[0])
+        sample_weights = sample_weights[:50000]
+        for key in aux.keys():
+            aux[key] = aux[key][:50000]
         if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
             Bdata = BESTIE.data.fourier_feature_mapping.input_mapping(data,B,params["Bscale"])
         else: 

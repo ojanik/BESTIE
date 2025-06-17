@@ -52,14 +52,14 @@ loss:
 
 training:
   lr:
-    lr: 0.0001
+    lr: 0.001
     method: cos
   batch_size: 100000
   batches_per_epoch: 50
   optimizer: adam
-  epochs: 1000
+  epochs: 50
   resets: 10
-  average_gradients: True
+  average_gradients: False
   train_number_of_bins: False
 
 rng: 187

@@ -12,7 +12,7 @@ import os
 import argparse
 
 
-def plot_routine_dep(model_path,
+"""def plot_routine_dep(model_path,
          save_to=None,
          make_gif=False,
          make_weighted_hist=False,
@@ -253,14 +253,13 @@ def plot_routine_dep(model_path,
         ani.save(os.path.join(model_path,"2D_scatter.gif"), writer='pillow', fps=frame_rate)
         plt.close()
 
-    if save_to is not None:
-        df.insert(3,"lss",onp.array(lss))
-        df.to_hdf(save_to,"a")
-        print(f"Saved dataframe with lss at {save_to}")
-
-    if save_df:
-
+    if save_df or save_to is not None:
         print("--- Saving dataframe with updated lss values ---")
+        if save_to is not None:
+            dataframe = save_to
+            _,ext = os.path.splitext(dataframe)
+
+        
 
         assert len(df)==len(mask)
         df["lss"] = -1.
@@ -271,7 +270,7 @@ def plot_routine_dep(model_path,
         elif ext[1:].lower() in ["hdf","hd5"]:
             df.to_hdf(dataframe)
         
-        print(f"--- Saved dataframe at {dataframe} ---")
+        print(f"--- Saved dataframe at {dataframe} ---")"""
 
     
 

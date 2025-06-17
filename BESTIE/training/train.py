@@ -370,7 +370,7 @@ class Train(Optimization_Pipeline):
                 Bdata = BESTIEdata.fourier_feature_mapping.input_mapping(batched_data,self.B,self.state.params["Bscale"])
             else: 
                 Bdata = BESTIEdata.fourier_feature_mapping.input_mapping(batched_data,self.B,self.config["dataset"]["fourier_feature_mapping"]["scale"])
-            lss = self.calc_lss(self.state.params,Bdata)
+            lss = self.calc_lss(self.state.params,Bdata,drop_out_key=jax.random.key(0))
             lss.block_until_ready()
             lss_arr.append(lss)
             if j == max_batches:

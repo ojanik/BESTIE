@@ -57,17 +57,18 @@ def plot_routine(model_path,
 
     B = results_dict.item()["ffm"]["B"]
 
+    if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
+        Bscale = params["Bscale"]
+    else:
+        Bscale = config["dataset"]["fourier_feature_mapping"]["scale"]
     batch_size = 10000
     num_parts = int(jnp.ceil(len(input_data)/batch_size))
     apply_fn = jit(net.apply)
     print("--- Calculating lss ---")
     for i in tqdm(range(num_parts),disable=True):
         batched_input_data = input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:len(config["dataset"]["input_vars"])]
-        if config["dataset"]["fourier_feature_mapping"]["train_scale"]:
-            scale = params["Bscale"]
-        else:
-            scale = config["dataset"]["fourier_feature_mapping"]["scale"]
-        batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B,scale)
+
+        batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B,Bscale)
         if i == 0:
             lss = apply_fn({"params": params},batched_input_data)[:,0]
         else:
@@ -91,7 +92,7 @@ def plot_routine(model_path,
     init_params = results_dict.item()["init_params"]
     for i in tqdm(range(num_parts),disable=True):
         batched_input_data = input_data[i*batch_size:jnp.min(Array([(i+1)*batch_size,len(input_data)])),:len(config["dataset"]["input_vars"])]
-        batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B)
+        batched_input_data = BESTIE.data.fourier_feature_mapping.input_mapping(batched_input_data,B,Bscale)
         if i == 0:
             phi0 = apply_fn({"params": init_params},batched_input_data)[:,0]
         else:
@@ -107,6 +108,7 @@ def plot_routine(model_path,
     bin_scale_up = config["hists"]["bins_up"]*nn.sigmoid(params["scale"]) * 2
     
     lss *= bin_scale_up
+
 
     #mask2 = ~jnp.isnan(lss[mask])
     #lss -= jnp.min(lss[mask][mask2])
