@@ -6,4 +6,3 @@ from . import transformations
 from .pipeline import *
 #from .training import *
 from . import data
-from .train_shape import *
