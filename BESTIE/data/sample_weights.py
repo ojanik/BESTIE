@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import numpy as onp
 Array = jnp.array
 from scipy.spatial import KDTree
 from functools import partial
@@ -22,7 +23,7 @@ def sample_weight_handler(dconfig):
     """
     method = dconfig["sample_weights"]["method"].lower()
 
-    if method in {"uniform"}:
+    if method in {"uniform","none"}:
         return uniform_sample_weights
 
     elif method in {"hist", "histogram", "binned"}:
@@ -113,4 +114,4 @@ def knn_sample_weights(data, k=16):
     # Use inverse density as sample weights (scaled by data dimensionality)
     sample_weights = knn_density ** len(data[0])
     sample_weights /= jnp.sum(sample_weights)  # Normalize to sum to 1
-    return jnp.array(sample_weights)
+    return onp.array(sample_weights)

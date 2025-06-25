@@ -22,8 +22,6 @@ def get_B(config):
     method = config["fourier_feature_mapping"]["method"]
 
     if method.lower() in ["gauss"]:
-      scale = config["fourier_feature_mapping"]["scale"]
-
       rand_key = random.key(187)
       B = random.normal(rand_key, (mapping_size, input_size))
     
