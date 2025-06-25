@@ -57,34 +57,8 @@ def loss_fisher_jac(llh, injected_params, lss, aux, data_hist, sample_weights, *
 
     return opti(S, weight_norm)
 
-def loss_fisher(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
-    signal_idx = kwargs.pop("signal_idx")
-    opti = kwargs.pop("opti")
-    weight_norm = kwargs.pop("weight_norm",None)
-    fish = hessian(llh)(injected_params,lss,aux,data_hist,sample_weights,**kwargs)
-
-    # marginalize fisher information
-    fish = rearrange_matrix(fish, signal_idx)
-    k = len(signal_idx)
-    A = fish[:k, :k]
-    B = fish[:k, k:]
-    C = fish[k:, k:]
-
-    # Compute the inverse of C
-    C_inv = jnp.linalg.inv(C)
-
-    # Compute the Schur complement S = A - B * C_inv * B^T
-    S = A - B @ C_inv @ B.T
-    jax.debug.print("opti: {opti}", opti=opti(S,weight_norm))
-    return opti(S)
-
 def calc_conv(fisher):
     return jnp.linalg.inv(fisher) #*-1.
-
-def S_optimality(fisher,signal_idx=[0]):
-    cov = calc_conv(fisher)
-    uncert = jnp.diag(cov)
-    return uncert
 
 def A_optimality(fisher,weight_norm=None):
     cov = calc_conv(fisher)
@@ -99,15 +73,6 @@ def A_optimality(fisher,weight_norm=None):
     loss = trace
 
     return loss
-
-def Matthias_loss(fisher,signal_idx=None):
-    cov = calc_conv(fisher)
-
-
-    sig_phi = 1.405
-    sig_gamma = 0.368
-
-    return cov[0,0]/sig_phi**2 + cov[1,1]/sig_gamma**2 + 2*cov[0,1]/(sig_phi*sig_gamma)
 
 def D_optimality(fisher,signal_idx=None):
     return 1/jnp.sqrt(jnp.linalg.det(fisher))
