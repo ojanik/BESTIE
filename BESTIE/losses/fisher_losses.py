@@ -1,13 +1,53 @@
 import jax.numpy as jnp
-
+Array = jnp.array
 from jax import grad, jacfwd, vmap
 import jax
 import jax.numpy as jnp 
 from BESTIE.utilities import rearrange_matrix
 
+from jax.tree_util import tree_flatten
+
 from jax import hessian
 
 from functools import partial
+
+def fisher_loss(mu,ssq,grad_hist,**kwargs):
+    parameters_to_optimize = kwargs.pop("parameters_to_optimize")
+    opti = kwargs.pop("opti")
+    weight_norm = kwargs.pop("weight_norm", None)
+
+    # Optional soft masking hyperparameters
+    threshold = kwargs.pop("rel_uncertainty_threshold", 0.05)  # e.g. 20% relative uncertainty
+    sharpness = kwargs.pop("mask_sharpness", 200)           # how steep the sigmoid is
+    eps = 1e-8
+
+    information = jax.tree_util.tree_map(lambda v: v/(jnp.sqrt(mu+1e-8)), grad_hist)
+    
+    
+    flat_values, _ = tree_flatten(information)
+    values = jnp.stack(flat_values)  # ✅ correct, always
+
+    keys = list(grad_hist.keys())  # use original dict for indexing
+ 
+    # Compute outer products along the new axis
+    # values[:, None, :] has shape (10, 1, 1600)
+    # values[None, :, :] has shape (1, 10, 1600)
+    # Resulting broadcasted product shape: (10, 10, 1600)
+    fisher_information = values[:, None, :] * values[None, :, :]
+
+    fisher_information = jnp.sum(fisher_information,axis=-1)
+    
+    signal_idx = [keys.index(p) for p in parameters_to_optimize]
+
+    fish = rearrange_matrix(fisher_information, signal_idx)
+    k = len(signal_idx)
+    A = fish[:k, :k]
+    B = fish[:k, k:]
+    C = fish[k:, k:]
+    C_inv = jnp.linalg.inv(C)
+    S = A - B @ C_inv @ B.T
+
+    return opti(S, weight_norm)
 
 def loss_fisher_jac(llh, injected_params, lss, aux, data_hist, sample_weights, **kwargs):
     signal_idx = kwargs.pop("signal_idx")

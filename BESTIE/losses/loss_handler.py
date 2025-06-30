@@ -17,9 +17,6 @@ def loss_handler(config):
         elif optimality.lower() in ["s","s_optimality","soptimality"]:
             from .fisher_losses import S_optimality
             opti = S_optimality
-        elif optimality.lower() in ["matthias","matthias_loss"]:
-            from .fisher_losses import Matthias_loss
-            opti = Matthias_loss
         elif optimality.lower() in ["d","d_optimality","doptimality","ellipsoid","uncertainty_ellipsoid","ellipsoid_volume","uncertainty_ellipsoid_volume"]:
             from .fisher_losses import D_optimality
             opti = D_optimality
@@ -27,17 +24,20 @@ def loss_handler(config):
             raise NotImplementedError(f"The {optimality} method for optimality is not yet implemented")
         
         loss_kwargs["opti"] = opti
-        loss_kwargs["signal_idx"] = lconfig["signal_idx"]
+        loss_kwargs["parameters_to_optimize"] = lconfig["parameters_to_optimize"]
         loss_kwargs["weight_norm"] = lconfig.get("weight_norm",None)
         loss_kwargs["rel_uncertainty_threshold"] = lconfig["soft_masking"].get("rel_uncertainty_threshold",None)
         loss_kwargs["mask_sharpness"] = lconfig["soft_masking"].get("mask_sharpness",None)
-    
-        if lconfig["fisher_method"].lower() in ["jacobian","expectation"]:
-            from .fisher_losses import loss_fisher_jac
+
+        from .fisher_losses import fisher_loss
+        losses.append(fisher_loss)
+
+        """if lconfig["fisher_method"].lower() in ["jacobian","expectation"]:
+            #from .fisher_losses import loss_fisher_jac
             losses.append(loss_fisher_jac)
         else:
             from .fisher_losses import loss_fisher
-            losses.append(loss_fisher)
+            losses.append(loss_fisher)"""
 
     if False:
         raise NotImplementedError("Scan loss is currently not fully implemented")
@@ -56,9 +56,9 @@ def loss_handler(config):
         raise NotImplementedError("No valid loss method selected")
     
     else:
-        def loss(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
-            return Array([l(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs,**loss_kwargs) for l in losses])
-    
+        def loss(mu,ssq,grad_hist,**kwargs):
+            return Array([l(mu,ssq,grad_hist,**kwargs,**loss_kwargs) for l in losses])
+
     return loss
 
 

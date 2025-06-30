@@ -49,8 +49,7 @@ def tanhHistND(
     lss: Array,  # shape (N, D)
     bins_list: Sequence[Array],  # list of D arrays of bin edges
     slopes: Sequence[float],     # list of D floats
-    mu_weights: Array,           # shape (N,)
-    ssq_weights: Array           # shape (N,)
+    weights: Array,           # shape (N,)
 ):
     """
     N-dimensional differentiable histogram using soft tanh binning.
@@ -65,16 +64,6 @@ def tanhHistND(
     bin_counts = [len(bins) - 1 for bins in bins_list]
     norm_factors = [tanh_norm((jnp.max(b) - jnp.min(b)) / (len(b) - 1), s) for b, s in zip(bins_list, slopes)]
 
-    # def per_event_soft_bin(x_event):
-    #     """Returns per-event soft bin memberships across D dims."""
-    #     soft_bins = []
-    #     for d in range(D):
-    #         memberships = tanh_binning(x_event[d], bins_list[d], slopes[d])
-    #         memberships = memberships * norm_factors[d]
-    #         soft_bins.append(memberships)
-    #     # Tensor product (outer product) across all dimensions
-    #     return reduce(lambda a, b: jnp.outer(a, b).reshape(-1), soft_bins)
-
     def per_event_soft_bin(x_event):
         """Returns per-event soft bin memberships across D dims."""
         soft_bins = []
@@ -88,13 +77,6 @@ def tanhHistND(
 
     # Vectorize over all events
     all_weights = vmap(per_event_soft_bin)(lss)  # shape (N, total_bins)
-    mu = jnp.sum(all_weights * mu_weights, axis=0)
-    ssq = jnp.sum(all_weights * ssq_weights, axis=0)
+    counts = jnp.sum(all_weights * weights, axis=0)
 
-    # Reshape to ND histogram
-    #shape = tuple(bin_counts)
-    #jax.debug.print("mu shape: {lsshape}",lsshape=mu.shape)
-    # mu = mu.sum(axis=0) 
-    # ssq = ssq.sum(axis=0) 
-    #jax.debug.print("mu shape 2: {lsshape}",lsshape=mu.shape)
-    return Array(mu), Array(ssq)
+    return Array(counts)
