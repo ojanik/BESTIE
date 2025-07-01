@@ -77,6 +77,6 @@ def tanhHistND(
 
     # Vectorize over all events
     all_weights = vmap(per_event_soft_bin)(lss)  # shape (N, total_bins)
-    counts = jnp.sum(all_weights * weights, axis=0)
+    counts = jnp.sum(all_weights * weights[:, None], axis=0)
 
     return Array(counts)
