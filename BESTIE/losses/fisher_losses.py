@@ -1,17 +1,16 @@
 import jax.numpy as jnp
 Array = jnp.array
-from jax import grad, jacfwd, vmap
+from jax import jacfwd, vmap
 import jax
-import jax.numpy as jnp 
-from BESTIE.utilities import rearrange_matrix
-
+import jax.numpy as jnp
 from jax.tree_util import tree_flatten
 
-from jax import hessian
+from ..utilities import rearrange_matrix
 
-from functools import partial
 
-def fisher_loss(mu,ssq,grad_hist,**kwargs):
+
+def fisher_loss(mu,ssq,grad_hist,softmasking=True,**kwargs):
+    #BUG overall scale of loss calculated here is off. Minimization still works.
     parameters_to_optimize = kwargs.pop("parameters_to_optimize")
     opti = kwargs.pop("opti")
     weight_norm = kwargs.pop("weight_norm", None)
@@ -35,16 +34,27 @@ def fisher_loss(mu,ssq,grad_hist,**kwargs):
     # Resulting broadcasted product shape: (10, 10, 1600)
     fisher_information = values[:, None, :] * values[None, :, :]
 
+    if threshold is not None or sharpness is not None or softmasking:
+        # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
+        rel_unc = jnp.sqrt(ssq + eps) / (mu + eps)
+        soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)  # shape: (n_bins,)
+        # Apply soft mask (broadcasted to matrix shape)
+        fisher_information = fisher_information * soft_mask[None, None, :]
+
+
     fisher_information = jnp.sum(fisher_information,axis=-1)
+
     
     signal_idx = [keys.index(p) for p in parameters_to_optimize]
 
     fish = rearrange_matrix(fisher_information, signal_idx)
+
     k = len(signal_idx)
     A = fish[:k, :k]
     B = fish[:k, k:]
     C = fish[k:, k:]
-    C_inv = jnp.linalg.inv(C)
+    reg = 1e-1 * jnp.eye(C.shape[0])
+    C_inv = jnp.linalg.inv(C + reg)
     S = A - B @ C_inv @ B.T
 
     return opti(S, weight_norm)
@@ -76,12 +86,12 @@ def loss_fisher_jac(llh, injected_params, lss, aux, data_hist, sample_weights, *
     hist_counts = mu + eps
     fish_i = fish_i / hist_counts[:, None, None]
 
-    if threshold is not None or sharpness is not None:
-        # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
-        rel_unc = jnp.sqrt(sigma + eps) / (mu + eps)
-        soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)  # shape: (n_bins,)
-        # Apply soft mask (broadcasted to matrix shape)
-        fish_i = fish_i * soft_mask[:, None, None]
+    # if threshold is not None or sharpness is not None:
+    #     # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
+    #     rel_unc = jnp.sqrt(sigma + eps) / (mu + eps)
+    #     soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)  # shape: (n_bins,)
+    #     # Apply soft mask (broadcasted to matrix shape)
+    #     fish_i = fish_i * soft_mask[:, None, None]
 
     # Sum over bins
     fish = jnp.sum(fish_i, axis=0)  # shape: (n_params, n_params)
@@ -92,18 +102,19 @@ def loss_fisher_jac(llh, injected_params, lss, aux, data_hist, sample_weights, *
     A = fish[:k, :k]
     B = fish[:k, k:]
     C = fish[k:, k:]
-    C_inv = jnp.linalg.inv(C)
+    reg = 1e-4 * jnp.eye(C.shape[0])
+    C_inv = jnp.linalg.inv(C + reg)
+    S = A - B @ C_inv @ B.T
     S = A - B @ C_inv @ B.T
 
     return opti(S, weight_norm)
 
-def calc_conv(fisher):
+def calc_cov(fisher):
     return jnp.linalg.inv(fisher) #*-1.
 
 def A_optimality(fisher,weight_norm=None):
-    cov = calc_conv(fisher)
+    cov = calc_cov(fisher)
     diag = jnp.diag(cov)
-
     if weight_norm is not None:
         if isinstance(weight_norm,list):
             weight_norm = jnp.array(weight_norm)

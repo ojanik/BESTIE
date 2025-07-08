@@ -1,3 +1,7 @@
+import os
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+import jax
+jax.config.update("jax_enable_x64", True)
 from BESTIE.training.train import Train
 import BESTIE
 
@@ -11,13 +15,6 @@ def parser():
         type=str,
         required=True,
         help="Path to the training configuration file",
-    )
-
-    parser.add_argument(
-        "--dataset_config",
-        type=str,
-        required=True,
-        help="Path to the dataset configuration file",
     )
 
     parser.add_argument(
@@ -50,7 +47,7 @@ def main(config,name,pbar):
         trainer.train_step(validate=epoch%10==0)
 
         #checkpoint
-        if (epoch+1) % 50 == 0:
+        if (epoch+1) % 20 == 0:
             print("Checkpointing...")
             trainer.save_results()
     
@@ -60,7 +57,6 @@ if __name__ == "__main__":
     args = parser().parse_args()
     config = BESTIE.utilities.configs.parse_yaml(args.config)
 
-    config["dataset"] = BESTIE.utilities.configs.parse_yaml(args.dataset_config)
 
     for override in args.overrides:
         override_dict = BESTIE.utilities.configs.parse_yaml(override)

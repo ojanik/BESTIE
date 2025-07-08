@@ -18,7 +18,7 @@ class Dataset():
         self.calc_sample_weights = sample_weight_handler(self.config)
 
         df = pd.read_parquet(config["dataframe"])
-        df = df.sample(frac=1) # shuffle the dataframe
+        #df = df.sample(frac=1) # shuffle the dataframe
         self.input_data, self.mask = create_input_data(df, self.config)
         self.num_features = self.input_data.shape[1]
         self.sample_weights = self.calc_sample_weights(self.input_data)
@@ -43,14 +43,14 @@ class Dataset():
         total_nan_mask = input_nan_mask | weights_nan_mask | sample_weights_nan_mask | grad_nan_mask
         valid_mask = ~total_nan_mask
 
-        self.input_data = self.input_data[valid_mask]
-        self.weights = self.weights[valid_mask]
-        self.sample_weights = self.sample_weights[valid_mask]
-        self.mask = self.mask[valid_mask]
+        self.input_data = self.input_data[valid_mask&self.mask]
+        self.weights = self.weights[valid_mask&self.mask]
+        self.sample_weights = self.sample_weights[valid_mask&self.mask]
+        self.mask = valid_mask&self.mask
         for k in self.grad_weights:
-            self.grad_weights[k] = self.grad_weights[k][valid_mask]
+            self.grad_weights[k] = self.grad_weights[k][valid_mask&self.mask]
         print("number of nans removed: ",jnp.sum(total_nan_mask))
-        print(f"number of events left: {len(self.input_data)}")
+        print(f"number of events left: {len(self.input_data)},{self.mask.sum()}")
         self.len_input = len(self.input_data)
 
         self.B = get_B(config)

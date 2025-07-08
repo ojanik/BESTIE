@@ -32,19 +32,6 @@ def loss_handler(config):
         from .fisher_losses import fisher_loss
         losses.append(fisher_loss)
 
-        """if lconfig["fisher_method"].lower() in ["jacobian","expectation"]:
-            #from .fisher_losses import loss_fisher_jac
-            losses.append(loss_fisher_jac)
-        else:
-            from .fisher_losses import loss_fisher
-            losses.append(loss_fisher)"""
-
-    if False:
-        raise NotImplementedError("Scan loss is currently not fully implemented")
-        from .scan_loss import calc_scan_loss
-
-        def loss(llh,injected_params,lss,aux,data_hist,sample_weights,**kwargs):
-            return calc_scan_loss(llh,injected_params,lss,aux,data_hist,sample_weights,scan_parameter_idx=config["signal_idx"],**kwargs)
 
     if any(elem.lower() in ["bin_loss","say_loss"] for elem in loss_method):
         from .bin_loss import bin_loss

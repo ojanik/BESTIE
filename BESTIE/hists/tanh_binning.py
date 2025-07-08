@@ -15,41 +15,10 @@ def tanh_binning(x, bin_edges, slope, weight=1.):
     """Return the bin index for a tanh binning."""
     return (0.5*(jnp.tanh((x - bin_edges[:-1]) / slope) * jnp.tanh(-(x - bin_edges[1:]) / slope)+1)) * weight
 
-def tanhHist(
-    lss: Array,
-    bins: Array,
-    slope: float,
-    mu_weights: Array,
-    ssq_weights: Array,):
-    """Differentiable histogram, defined via a tanh binning.
-    Parameters
-    ----------
-    data : Array
-        1D array of data to histogram.
-    bins : Array
-        1D array of bin edges.
-    slope : float
-        The slope of the tanh function.
-    Returns
-    -------
-    Array
-        1D array of tanhHist counts.
-    """
-    #TODO add handling of events lying at the edges of the binning range
-    bin_width = (jnp.max(bins) - jnp.min(bins))/len(bins)
-    norm = tanh_norm(bin_width,slope)
-    tanh_binning_vmap = vmap(tanh_binning, in_axes=(0, None, None, 0))
-    mu = 1/norm * tanh_binning_vmap(lss, bins, slope, mu_weights)
-    ssq = 1/norm * tanh_binning_vmap(lss, bins, slope, ssq_weights)
-    mu = jnp.sum(mu, axis=0)
-    ssq = jnp.sum(ssq, axis=0)
-    return mu, ssq
-
 def tanhHistND(
     lss: Array,  # shape (N, D)
     bins_list: Sequence[Array],  # list of D arrays of bin edges
     slopes: Sequence[float],     # list of D floats
-    weights: Array,           # shape (N,)
 ):
     """
     N-dimensional differentiable histogram using soft tanh binning.
@@ -57,6 +26,9 @@ def tanhHistND(
         mu:  shape (b₁, b₂, ..., b_D)
         ssq: shape (b₁, b₂, ..., b_D)
     """
+
+    #BUG Normalization does not quite work. Optimization still works but the overall scale is off.
+
     N, D = lss.shape
     
     assert D == len(bins_list) == len(slopes), "Mismatch in lss dimensions and binning lists"
@@ -73,10 +45,16 @@ def tanhHistND(
             soft_bins.append(memberships)
         # Tensor product (outer product) across all dimensions
         combined = reduce(lambda a, b: jnp.outer(a, b).reshape(-1), soft_bins)
+        combined = combined / jnp.sum(combined)
         return combined  # Normalize to sum to 1
 
     # Vectorize over all events
     all_weights = vmap(per_event_soft_bin)(lss)  # shape (N, total_bins)
-    counts = jnp.sum(all_weights * weights[:, None], axis=0)
 
-    return Array(counts)
+    return all_weights
+
+
+
+
+
+

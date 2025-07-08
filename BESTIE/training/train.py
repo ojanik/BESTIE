@@ -2,23 +2,20 @@ from datetime import datetime
 
 from flax.training import train_state
 import optax
-from jax import random, jit, value_and_grad, nn
-from jax.tree_util import tree_map
+from jax import random, jit
 import jax.numpy as jnp
 Array = jnp.array
-from tqdm import tqdm
-from functools import partial
 import jax 
 from jax import lax
 import time
-import pandas as pd
 import yaml
 import os
+from tqdm import tqdm
 
-from ..pipeline import Optimization_Pipeline, Pipeline
+from ..pipeline import Pipeline
 from .. import utilities, nets
-from .. import data as BESTIEdata
 from ..data import Dataset
+from ..data.fourier_feature_mapping import input_mapping, get_B
 
 
 def has_nan(pytree):
@@ -28,7 +25,7 @@ def has_nan(pytree):
     return jax.tree_util.tree_reduce(lambda a, b: a | b, nan_trees)
 
 class Train(Pipeline,Dataset):
-    def __init__(self,config):
+    def __init__(self,config,name="unnamed"):
         Dataset.__init__(self, config)
         Pipeline.__init__(self, config)
         
@@ -43,11 +40,11 @@ class Train(Pipeline,Dataset):
         print(f"Training split idx from {min_idx} to {max_idx}")
         print(f"Validation split idx from {max_idx+1} to {int(self.len_input-1)}")
         self.sample_val = self.get_sampler(max_idx+1,int(self.len_input-1))
-        self.sample_train = self.get_sampler(min_idx,max_idx,)
+        self.sample_train = self.get_sampler(min_idx,max_idx,smear=True)
         #self.sample_val = self.get_sampler(min_idx+1,max_idx-1)
         
 
-        self._make_result_dir()
+        self._make_result_dir(name=name)
         self.set_result_dict()
         
         self.initialize_network(self.rng)
@@ -55,6 +52,8 @@ class Train(Pipeline,Dataset):
 
         self.train_epoch = self.build_train_step(training=True,sampler=self.sample_train,)
         self.val_epoch = self.build_train_step(training=False,sampler=self.sample_val)
+
+        self.save_config()
 
     @staticmethod
     def rerng(rng):
@@ -192,17 +191,67 @@ class Train(Pipeline,Dataset):
         loss, losses = metrics
         loss = jnp.mean(loss)
         self.result_dict["history"].append(loss)
-        #self.result_dict["learning_rate_epochs"].append(self.state.optimizer.learning_rate)
         self.result_dict["params"] = self.state.params
+        #self.result_dict["learning_rate_epochs"].append(self.state.optimizer.learning_rate)
+        
         if validate==True:
             print("Validating...")
-            self.rng, val_key = random.split(self.rng)
-            _, metrics, self.rng = self.val_epoch(self.state, self.rng)
-            val_loss, _ = metrics
-            val_loss = jnp.mean(val_loss)
-            self.result_dict["val_loss"].append(val_loss)
-            print(f"Loss: {loss}, Val Loss: {val_loss}")
+            # self.rng, val_key = random.split(self.rng)
+            # _, metrics, self.rng = self.val_epoch(self.state, self.rng)
+            # val_loss, _ = metrics
+            # val_loss = jnp.mean(val_loss)
+            # self.result_dict["val_loss"].append(val_loss)
+            # print(f"Loss: {loss}, Val Loss: {val_loss}")
+            val_diag = self.validate()
+            print("Val diag: ",val_diag)
         else:
             self.result_dict["val_loss"].append(jnp.nan)
             print(f"Loss: {loss}")
+
+    def validate(self):
+        data = self.input_data
+        weights = self.weights
+        grad_weights = self.grad_weights
+        lss_arr = []
+
+        bs = 100_000
+        for i in tqdm(range(0,data.shape[0],bs)):
+            
+            batched_data = data[i:i+bs]
+            batched_data = input_mapping(batched_data,self.B,self.logscale)
+
+            lss = self.calc_lss(self.result_dict["params"],batched_data,drop_out_key=self.rng,training=False)
+            lss.block_until_ready()
+            lss_arr.append(lss)
+
+
+
+        lss_arr = jnp.concatenate(lss_arr,axis=0)
+        lss1 = lss_arr[:,0]
+        lss2 = lss_arr[:,1]
+        bins_lss = jnp.linspace(0,1,self.config["hists"]["bins_number"])
+        mu, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(weights))
+        mu = mu.flatten()
+        grad_hist = {}
+        for k in grad_weights:
+
+            g, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(grad_weights[k]))
+            g = g.flatten()
+            g = g / jnp.sqrt(mu+1e-8)
+            grad_hist[k] = g
+
+        values = jnp.array([jnp.array(v) for v in grad_hist.values()])
+        fisher_information = values[:, None, :] * values[None, :, :]
+        fisher_information = jnp.sum(fisher_information,axis=-1)
+        cov = jnp.linalg.inv(fisher_information)
+        return jnp.diag(cov)
+
+    def save_results(self):
+        jnp.save(os.path.join(self.config["save_dir"],"result.pickle"),self.result_dict,allow_pickle=True)
+    
+    def save_config(self):
+        with open(os.path.join(self.config["save_dir"],"config.yaml"), 'w') as file:
+            yaml.dump(self.config, file, default_flow_style=False)
+
+
         
