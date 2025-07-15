@@ -44,7 +44,7 @@ def main(config,name,pbar):
     trainer = Train(config,name=name)
 
     for epoch in tqdm(range(config["training"]["epochs"]),disable=not pbar):
-        trainer.train_step(validate=epoch%10==0)
+        trainer.train_step(validate=epoch%10==0) #
 
         #checkpoint
         if (epoch+1) % 20 == 0:

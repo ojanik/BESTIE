@@ -16,7 +16,7 @@ from ..pipeline import Pipeline
 from .. import utilities, nets
 from ..data import Dataset
 from ..data.fourier_feature_mapping import input_mapping, get_B
-
+from ..nets.train_state import MultiNetworkTrainState
 
 def has_nan(pytree):
     # Map each leaf to a boolean indicating presence of any NaNs in that leaf
@@ -24,9 +24,9 @@ def has_nan(pytree):
     # Reduce the tree to a single boolean indicating if any leaf has NaNs
     return jax.tree_util.tree_reduce(lambda a, b: a | b, nan_trees)
 
-class Train(Pipeline,Dataset):
+class Train(Pipeline):
     def __init__(self,config,name="unnamed"):
-        Dataset.__init__(self, config)
+        #Dataset.__init__(self, config)
         Pipeline.__init__(self, config)
         
 
@@ -35,25 +35,35 @@ class Train(Pipeline,Dataset):
 
         self.rng = random.key(config["rng"])
 
-        min_idx = int(0) 
-        max_idx = int(self.config["train_split"] * self.len_input)
-        print(f"Training split idx from {min_idx} to {max_idx}")
-        print(f"Validation split idx from {max_idx+1} to {int(self.len_input-1)}")
-        self.sample_val = self.get_sampler(max_idx+1,int(self.len_input-1))
-        self.sample_train = self.get_sampler(min_idx,max_idx,smear=True)
-        #self.sample_val = self.get_sampler(min_idx+1,max_idx-1)
+        self.datasets = {}
+        self.num_features = {}
+        for dkey in self.config["datasets"]:
+            self.datasets[dkey] = {}
+            self.datasets[dkey]["hist_name"] = self.config["datasets"][dkey]["hist"]
+            D = Dataset(config,dkey)
+            min_idx = int(0)
+            max_idx = int(self.config["datasets"][dkey]["train_split"] * D.len_input)
+            sampler = D.get_sampler(min_idx,max_idx,smear=True)
+            self.datasets[dkey]["sampler"] = sampler
+            self.datasets[dkey]["Dataset"] = D
+            self.num_features[self.config["datasets"][dkey]["hist"]] = D.num_features
+        
         
 
         self._make_result_dir(name=name)
         self.set_result_dict()
         
         self.initialize_network(self.rng)
-        rng = self.rerng(self.rng)
+        self.rng = self.rerng(self.rng)
 
-        self.train_epoch = self.build_train_step(training=True,sampler=self.sample_train,)
-        self.val_epoch = self.build_train_step(training=False,sampler=self.sample_val)
+        self.train_epoch = self.build_train_step(training=True)
+        #self.val_epoch = self.build_train_step(training=False,sampler=self.sample_val)
 
         self.save_config()
+
+    def get_data_dict_entry(self):
+        pass
+
 
     @staticmethod
     def rerng(rng):
@@ -61,9 +71,12 @@ class Train(Pipeline,Dataset):
         return rng
 
     def initialize_network(self,rng):
-        init_params = self.net.init(rng,jnp.ones(self.num_features))["params"]
-
-        self.result_dict["init_params"] = init_params
+        apply_dict = {}
+        param_dict = {}
+        for hkey in self.net_dict.keys():
+            init_params = self.net_dict[hkey]["net"].init(rng,jnp.ones(self.num_features[hkey]))
+            param_dict[hkey] = init_params
+            apply_dict[hkey] = self.net_dict[hkey]["net"].apply
 
         if self.config["training"]["average_gradients"]:
             update_steps_per_epoch = 1
@@ -76,14 +89,14 @@ class Train(Pipeline,Dataset):
         # Set up optimizer for network parameters
         tx = getattr(optax,self.config["training"]["optimizer"].lower())(learning_rate = lr_fn)
 
-        class TrainState(train_state.TrainState):
-            key: jax.Array
-        self.rng, dropout_key = jax.random.split(self.rng)
-        # Create state for network parameters
-        self.state = TrainState.create(apply_fn=self.net.apply,
-                                            params=init_params,
-                                            key=dropout_key,
-                                            tx=tx)
+        self.rng, key = jax.random.split(self.rng)
+        self.state = MultiNetworkTrainState.create(apply_fns=apply_dict,
+                                            params=param_dict,
+                                            tx=tx,
+                                            key=key)
+        
+
+        
 
         def count_params(params):
             sizes = jax.tree_util.tree_map(lambda x: jnp.size(x), params)
@@ -120,15 +133,24 @@ class Train(Pipeline,Dataset):
             self.result_dict["val_loss"] = []
 
 
-    def build_train_step(self,training,sampler):
+    def get_sample_dict(self,rng):
+        batch = {}
+        for dkey in self.datasets:
+            batch[dkey] = {}
+            b, rng = self.datasets[dkey]["sampler"](rng)
+            data, weights, grad_weights, sample_weights = b
+            #batch[dkey]["hist_name"] = self.datasets[dkey]["hist_name"]
+            batch[dkey]["data"] = data
+            batch[dkey]["weights"] = weights
+            batch[dkey]["grad_weights"] = grad_weights
+            batch[dkey]["sample_weights"] = sample_weights
+        return batch, rng
+
+    def build_train_step(self,training):
         
         def l(params, batch, rng):
-            data, weights, grad_weights, sample_weights = batch
             loss, losses = self._optimization_pipeline(params,
-                                                       data,
-                                                       weights,
-                                                       grad_weights,
-                                                       sample_weights,
+                                                       batch,
                                                        drop_out_key=rng
                                             )
             rng = self.rerng(rng)
@@ -138,11 +160,12 @@ class Train(Pipeline,Dataset):
             ### Do not call this function directly!
             # Loop over batches
 
-            def step_fn(carry,batch_idx):
+            def step_fn(carry, _):
                 state, rng, accum_grads = carry
                 rng, subkey, drop_out_key = random.split(rng,num=3)
 
-                batch, rng = sampler(rng)
+
+                batch , rng= self.get_sample_dict(rng)
 
                 rng, split_rng = random.split(rng)
                 #Compute grads
@@ -163,7 +186,8 @@ class Train(Pipeline,Dataset):
             rng, init_key = jax.random.split(rng)
             accum_grads = utilities.jax_utils.scale_pytrees(0., state.params)
             (state, _, accum_grads), metrics = lax.scan(
-                step_fn, (state, init_key, accum_grads), jnp.arange(self.config["training"]["batches_per_epoch"])
+                step_fn, (state, init_key, accum_grads),
+                xs=jnp.arange(self.config["training"]["batches_per_epoch"]),
             )
 
             if self.config["training"]["average_gradients"]:
@@ -172,6 +196,8 @@ class Train(Pipeline,Dataset):
             return state, metrics, rng
 
         return jit(_train_epoch)
+
+
 
     def train_step(self,validate=False):
         try:
@@ -209,36 +235,48 @@ class Train(Pipeline,Dataset):
             print(f"Loss: {loss}")
 
     def validate(self):
-        data = self.input_data
-        weights = self.weights
-        grad_weights = self.grad_weights
-        lss_arr = []
-
+        # data = self.input_data
+        # weights = self.weights
+        # grad_weights = self.grad_weights
+        # lss_arr = []
         bs = 100_000
-        for i in tqdm(range(0,data.shape[0],bs)):
+        val_dict = {}
+        for dkey in self.datasets.keys():
+            hkey = self.hist_map[dkey]
+            D = self.datasets[dkey]["Dataset"]
+            data = D.input_data
+            lss_arr = []
+
+            j = 1
+            for i in tqdm(range(0,data.shape[0],bs)):
+                
+                batched_data = data[i:i+bs]
+                batched_data = input_mapping(batched_data,D.B,D.logscale)
+
+                lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=False)
+                lss.block_until_ready()
+                lss_arr.append(lss)
+                j += 1
+            lss_arr = jnp.concatenate(lss_arr,axis=0)
+            #lss_dict[dkey] = lss_arr
+
+            weights = D.weights
+            grad_weights = D.grad_weights
+
+
             
-            batched_data = data[i:i+bs]
-            batched_data = input_mapping(batched_data,self.B,self.logscale)
+            lss1 = lss_arr[:,0]
+            lss2 = lss_arr[:,1]
+            bins_lss = jnp.linspace(0,1,self.config["hists"][hkey]["hists"]["bins_number"])
+            mu, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(weights))
+            mu = mu.flatten()
+            grad_hist = {}
+            for k in grad_weights:
 
-            lss = self.calc_lss(self.result_dict["params"],batched_data,drop_out_key=self.rng,training=False)
-            lss.block_until_ready()
-            lss_arr.append(lss)
-
-
-
-        lss_arr = jnp.concatenate(lss_arr,axis=0)
-        lss1 = lss_arr[:,0]
-        lss2 = lss_arr[:,1]
-        bins_lss = jnp.linspace(0,1,self.config["hists"]["bins_number"])
-        mu, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(weights))
-        mu = mu.flatten()
-        grad_hist = {}
-        for k in grad_weights:
-
-            g, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(grad_weights[k]))
-            g = g.flatten()
-            g = g / jnp.sqrt(mu+1e-8)
-            grad_hist[k] = g
+                g, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(grad_weights[k]))
+                g = g.flatten()
+                g = g / jnp.sqrt(mu+1e-8)
+                grad_hist[k] = g
 
         values = jnp.array([jnp.array(v) for v in grad_hist.values()])
         fisher_information = values[:, None, :] * values[None, :, :]

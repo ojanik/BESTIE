@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import pandas as pd
 import jax
+from jax import random
 
 Array = jnp.array
 
@@ -10,16 +11,21 @@ from .fourier_feature_mapping import input_mapping, get_B
 
 class Dataset():
 
-    def __init__(self, config):
-
-        self.livetime = 1 * 287 * 24 * 3600
-
+    def __init__(self, config, dkey):
         self.config = config
-        self.calc_sample_weights = sample_weight_handler(self.config)
+        self.dkey = dkey
+        hkey = config["datasets"][dkey]["hist"]
 
-        df = pd.read_parquet(config["dataframe"])
+        hconfig = config["hists"][hkey]
+        self.livetime = hconfig["livetime"]
+
+        self.hconfig = hconfig
+        self.calc_sample_weights = sample_weight_handler(self.hconfig)
+
+        dframe_path = config["datasets"][dkey]["dataframe"]
+        df = pd.read_parquet(dframe_path)
         #df = df.sample(frac=1) # shuffle the dataframe
-        self.input_data, self.mask = create_input_data(df, self.config)
+        self.input_data, self.mask = create_input_data(df, self.hconfig)
         self.num_features = self.input_data.shape[1]
         self.sample_weights = self.calc_sample_weights(self.input_data)
 
@@ -49,19 +55,27 @@ class Dataset():
         self.mask = valid_mask&self.mask
         for k in self.grad_weights:
             self.grad_weights[k] = self.grad_weights[k][valid_mask&self.mask]
+        # Sort keys alphabetically as jax' tree operations will do it later anyway
+        self.grad_weights = {k: self.grad_weights[k] for k in sorted(self.grad_weights)}
+
         print("number of nans removed: ",jnp.sum(total_nan_mask))
         print(f"number of events left: {len(self.input_data)},{self.mask.sum()}")
         self.len_input = len(self.input_data)
 
-        self.B = get_B(config)
+        self.B = get_B(self.hconfig)
         if self.B is not None:
-            self.num_features = 2 * config["fourier_feature_mapping"]["mapping_size"]
-        self.logscale = config["fourier_feature_mapping"]["logscale"]
+            self.num_features = 2 * self.hconfig["fourier_feature_mapping"]["mapping_size"]
+        self.logscale = self.hconfig["fourier_feature_mapping"]["logscale"]
+
+    @staticmethod
+    def rerng(rng):
+        rng, _ = random.split(rng)
+        return rng
 
     def get_sampler(self, min_idx, max_idx,smear=False):
         B = self.B
         logscale = self.logscale
-        batch_size = self.config["training"]["batch_size"]
+        batch_size = self.config["datasets"][self.dkey]["batch_size"]
         sample_weights_draw = jnp.copy(Array(self.sample_weights[min_idx:max_idx]))
         sample_weights = Array(self.sample_weights)
         len_input = self.len_input
