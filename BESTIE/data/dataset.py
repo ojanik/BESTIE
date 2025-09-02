@@ -27,7 +27,7 @@ class Dataset():
         #df = df.sample(frac=1) # shuffle the dataframe
         self.input_data, self.mask = create_input_data(df, self.hconfig)
         self.num_features = self.input_data.shape[1]
-        self.sample_weights = self.calc_sample_weights(self.input_data)
+        
 
         self.weights = Array(df["weights"]) * self.livetime
         self.grad_weights = {}
@@ -40,18 +40,21 @@ class Dataset():
         # === NaN Removal ===
         input_nan_mask = jnp.any(jnp.isnan(self.input_data), axis=1)
         weights_nan_mask = jnp.isnan(self.weights)
-        sample_weights_nan_mask = jnp.isnan(self.sample_weights)
+        
+
 
         grad_nan_mask = jnp.zeros_like(input_nan_mask)
         for v in self.grad_weights.values():
             grad_nan_mask |= jnp.isnan(v)
 
-        total_nan_mask = input_nan_mask | weights_nan_mask | sample_weights_nan_mask | grad_nan_mask
+        total_nan_mask = input_nan_mask | weights_nan_mask | grad_nan_mask
         valid_mask = ~total_nan_mask
 
         self.input_data = self.input_data[valid_mask&self.mask]
         self.weights = self.weights[valid_mask&self.mask]
-        self.sample_weights = self.sample_weights[valid_mask&self.mask]
+
+        self.sample_weights = self.calc_sample_weights(self.input_data)
+        #self.sample_weights = self.sample_weights[valid_mask&self.mask]
         self.mask = valid_mask&self.mask
         for k in self.grad_weights:
             self.grad_weights[k] = self.grad_weights[k][valid_mask&self.mask]

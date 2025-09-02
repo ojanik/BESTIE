@@ -13,14 +13,14 @@ def lr_handler(config,steps_per_epoch):
         lr = create_cosine_lr(config["training"]["lr"]["lr"],
                               steps_per_epoch=steps_per_epoch,
                               num_epochs=config["training"]["epochs"],
-                              warmup_epochs=0)
+                              warmup_epochs=config["training"]["warmup"])
     
     elif method.lower() in ["cosine_reset","cos_reset"]:
         from .learning_rates import create_cosine_reset_lr
         lr = create_cosine_reset_lr(config["training"]["lr"]["lr"],
                                     steps_per_epoch=steps_per_epoch,
                                     num_epochs=config["training"]["epochs"],
-                                    warmup_epochs=0,
+                                    warmup_epochs=config["training"]["warmup"],
                                     number_of_resets=config["training"]["resets"])
 
     else:

@@ -222,12 +222,6 @@ class Train(Pipeline):
         
         if validate==True:
             print("Validating...")
-            # self.rng, val_key = random.split(self.rng)
-            # _, metrics, self.rng = self.val_epoch(self.state, self.rng)
-            # val_loss, _ = metrics
-            # val_loss = jnp.mean(val_loss)
-            # self.result_dict["val_loss"].append(val_loss)
-            # print(f"Loss: {loss}, Val Loss: {val_loss}")
             val_diag = self.validate()
             print("Val diag: ",val_diag)
         else:
@@ -254,6 +248,7 @@ class Train(Pipeline):
                 batched_data = input_mapping(batched_data,D.B,D.logscale)
 
                 lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=False)
+                
                 lss.block_until_ready()
                 lss_arr.append(lss)
                 j += 1
@@ -267,7 +262,7 @@ class Train(Pipeline):
             
             lss1 = lss_arr[:,0]
             lss2 = lss_arr[:,1]
-            bins_lss = jnp.linspace(0,1,self.config["hists"][hkey]["hists"]["bins_number"])
+            bins_lss = jnp.linspace(self.config["hists"][hkey]["hists"]["bins_low"],self.config["hists"][hkey]["hists"]["bins_up"],self.config["hists"][hkey]["hists"]["bins_number"])
             mu, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(weights))
             mu = mu.flatten()
             grad_hist = {}
@@ -278,12 +273,13 @@ class Train(Pipeline):
                 g = g / jnp.sqrt(mu+1e-8)
                 grad_hist[k] = g
 
-        values = jnp.array([jnp.array(v) for v in grad_hist.values()])
-        fisher_information = values[:, None, :] * values[None, :, :]
-        fisher_information = jnp.sum(fisher_information,axis=-1)
-        cov = jnp.linalg.inv(fisher_information)
-        return jnp.diag(cov)
-
+            values = jnp.array([jnp.array(v) for v in grad_hist.values()])
+            keys = [k for k in grad_hist.keys()]
+            fisher_information = values[:, None, :] * values[None, :, :]
+            fisher_information = jnp.sum(fisher_information,axis=-1)
+            cov = jnp.linalg.inv(fisher_information)
+            print({keys[i]:jnp.diag(cov)[i] for i in range(len(keys))})
+        return 0
     def save_results(self):
         jnp.save(os.path.join(self.config["save_dir"],"result.pickle"),self.result_dict,allow_pickle=True)
     

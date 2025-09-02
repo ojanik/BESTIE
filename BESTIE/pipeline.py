@@ -41,8 +41,8 @@ class Pipeline:
             rngs={"dropout": drop_out_key}
             )
 
-        lss *= self.config["hists"][hkey]["hists"]["bins_up"]
-
+        #lss *= self.config["hists"][hkey]["hists"]["bins_up"]
+        lss = self.transform_fun(lss)
         return lss
 
     def calc_lss_dict(self, net_params: dict, data_dict: dict, hist_map: dict,
@@ -52,7 +52,7 @@ class Pipeline:
         def _apply(name, entry):
             data = entry["data"]
             lss = self.calc_lss(net_params,data,hist_map,name,training,drop_out_key)
-
+            
             return {
                 "lss": lss,
                 "weights": entry["weights"],
@@ -149,6 +149,7 @@ class Pipeline:
                 grad_hist[k] = jnp.concatenate(vs)
 
             mu = jnp.concatenate(all_mu)
+            #("Mu sum {x}",x=mu.sum())
             ssq = jnp.concatenate(all_ssq)
             losses = self.calc_loss(mu, ssq, grad_hist)
             total_loss = jnp.sum(losses)
@@ -158,11 +159,65 @@ class Pipeline:
         self._optimization_pipeline = optimization_pipeline
 
     def test_hist(self, net_params, data_dict, rng):
-        lss_dict = self.calc_lss(net_params, data_dict, self.hist_map,
+        lss_dict = self.calc_lss_dict(net_params, data_dict, self.hist_map,
                                  drop_out_key=rng, training=False)
         hist_names = {k: self.hist_map[k] for k in data_dict}
         hist_dict = self.get_histograms(lss_dict, hist_names)
-        return {k: v["mu"] for k, v in hist_dict.items()}
+
+        grouped = {}
+        for name, entry in hist_dict.items():
+            hname = hist_names[name]
+            if hname not in grouped:
+                grouped[hname] = {
+                    "mu": entry["mu"],
+                    "ssq": entry["ssq"],
+                    "grad_hist": entry["grad_hist"].copy()
+                }
+            else:
+                grouped[hname]["mu"] += entry["mu"]
+                grouped[hname]["ssq"] += entry["ssq"]
+                for k, v in entry["grad_hist"].items():
+                    if k in grouped[hname]["grad_hist"]:
+                        grouped[hname]["grad_hist"][k] += v
+                    else:
+                        grouped[hname]["grad_hist"][k] = v
+
+        all_mu = []
+        all_ssq = []
+        grad_chunks = []
+        all_keys = set()
+
+        for group in grouped.values():
+            all_mu.append(group["mu"])
+            all_ssq.append(group["ssq"])
+            grad_chunks.append(group["grad_hist"])
+            all_keys.update(group["grad_hist"].keys())
+
+        chunk_lengths = [g["mu"].shape[0] for g in grouped.values()]
+
+        grad_hist = {}
+        for k in all_keys:
+            vs = []
+            for chunk, length in zip(grad_chunks, chunk_lengths):
+                if k in chunk:
+                    vs.append(chunk[k])
+                else:
+                    example = next(iter(chunk.values()))
+                    shape = (length,) + example.shape[1:]
+                    vs.append(jnp.zeros(shape, dtype=example.dtype))
+            grad_hist[k] = jnp.concatenate(vs)
+
+        clip_mask = mu < 1e-2
+
+
+
+        mu = jnp.concatenate(all_mu)
+        
+        ssq = jnp.concatenate(all_ssq)
+
+        return mu, ssq, grad_hist
+
+
 
     def eval_hists(self, net_params, data_dict, training=False, drop_out_key=None):
         lss_dict = self.calc_lss(net_params, data_dict, self.hist_map,

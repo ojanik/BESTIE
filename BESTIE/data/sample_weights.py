@@ -27,7 +27,7 @@ def sample_weight_handler(dconfig):
         return uniform_sample_weights
 
     elif method in {"hist", "histogram", "binned"}:
-        number_of_sample_bins = dconfig["sample_weights"].get("number_of_sample_bins", 20)
+        number_of_sample_bins = dconfig["sample_weights"].get("number_of_sample_bins", 50)
         return partial(hist_sample_weights, number_of_sample_bins=number_of_sample_bins)
 
     elif method in {"knn"}:
