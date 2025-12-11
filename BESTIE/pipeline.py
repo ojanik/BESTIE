@@ -73,14 +73,16 @@ class Pipeline:
 
         for name, entry in lss_dict.items():
             lss = entry["lss"]
+            
             weights = entry["weights"]
             sample_weights = entry.get("sample_weights", None)
             grad_weights = entry["grad_weights"]
 
             all_weights = self.calc_hist[self.hist_map[name]]["calc_hist"](lss)
+
             mu = self._get_histogram(all_weights, weights, sample_weights)
             ssq = self._get_histogram(all_weights, weights**2, sample_weights)
-
+            
             grad_hist = {
                 k: self._get_histogram(all_weights, v, sample_weights)
                 for k, v in grad_weights.items()
@@ -207,7 +209,7 @@ class Pipeline:
                     vs.append(jnp.zeros(shape, dtype=example.dtype))
             grad_hist[k] = jnp.concatenate(vs)
 
-        clip_mask = mu < 1e-2
+        # clip_mask = mu < 1e-2
 
 
 
