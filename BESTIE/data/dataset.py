@@ -7,7 +7,6 @@ Array = jnp.array
 
 from .prepare_data import create_input_data
 from .sample_weights import sample_weight_handler
-from .fourier_feature_mapping import input_mapping, get_B
 
 class Dataset():
 
@@ -65,19 +64,12 @@ class Dataset():
         print(f"number of events left: {len(self.input_data)},{self.mask.sum()}")
         self.len_input = len(self.input_data)
 
-        self.B = get_B(self.hconfig)
-        if self.B is not None:
-            self.num_features = 2 * self.hconfig["fourier_feature_mapping"]["mapping_size"]
-        self.logscale = self.hconfig["fourier_feature_mapping"]["logscale"]
-
     @staticmethod
     def rerng(rng):
         rng, _ = random.split(rng)
         return rng
 
     def get_sampler(self, min_idx, max_idx,smear=False):
-        B = self.B
-        logscale = self.logscale
         batch_size = self.config["datasets"][self.dkey]["batch_size"]
         sample_weights_draw = jnp.copy(Array(self.sample_weights[min_idx:max_idx]))
         sample_weights = Array(self.sample_weights)
@@ -100,8 +92,6 @@ class Dataset():
             if smear:
                 x = x + noise_epsilon * jax.random.normal(key=rng, shape=x.shape)
                 rng = self.rerng(rng)
-            if B is not None:
-                x = input_mapping(x, B, logscale)
             sample_reweights = Array(1/sample_weights[indices] / jnp.sum(1/sample_weights[indices]) * len_input)
 
             return (
