@@ -6,7 +6,6 @@ import matplotlib.colors as mcolors
 
 from .train import Train
 from ..utilities import parse_yaml
-from ..data.fourier_feature_mapping import input_mapping
 
 
 class Evaluate(Train):
@@ -33,7 +32,6 @@ class Evaluate(Train):
             for i in tqdm(range(0,data.shape[0],bs)): 
                 
                 batched_data = data[i:i+bs]
-                batched_data = input_mapping(batched_data,D.B,D.logscale)
 
                 lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=True)
                 lss.block_until_ready()
@@ -67,11 +65,14 @@ class Evaluate(Train):
             bins = jnp.linspace(bins_low,bins_up,bins_number)
             fig, ax = plt.subplots()
 
-
-    def get_test_hist(self):
+    def get_sample_lss(self):
         batch , self.rng= self.get_sample_dict(self.rng)
         lss_dict = self.calc_lss_dict(self.result_dict["params"], batch, self.hist_map,
                                      training=False, drop_out_key=self.rng)
+        return batch,lss_dict
+
+    def get_test_hist(self):
+        lss_dict = self.get_sample_lss()
         hist_names = {k: self.hist_map[k] for k in lss_dict}
 
         hist_dict = self.get_histograms(lss_dict, hist_names)

@@ -1,3 +1,4 @@
+print("Loaded training")
 from datetime import datetime
 
 from flax.training import train_state
@@ -15,7 +16,6 @@ from tqdm import tqdm
 from ..pipeline import Pipeline
 from .. import utilities, nets
 from ..data import Dataset
-from ..data.fourier_feature_mapping import input_mapping, get_B
 from ..nets.train_state import MultiNetworkTrainState
 
 def has_nan(pytree):
@@ -245,7 +245,6 @@ class Train(Pipeline):
             for i in tqdm(range(0,data.shape[0],bs)):
                 
                 batched_data = data[i:i+bs]
-                batched_data = input_mapping(batched_data,D.B,D.logscale)
 
                 lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=False)
                 
@@ -279,6 +278,7 @@ class Train(Pipeline):
             fisher_information = jnp.sum(fisher_information,axis=-1)
             cov = jnp.linalg.inv(fisher_information)
             print({keys[i]:jnp.diag(cov)[i] for i in range(len(keys))})
+            self.result_dict["val_loss"].append({keys[i]:jnp.diag(cov)[i] for i in range(len(keys))})
         return 0
     def save_results(self):
         jnp.save(os.path.join(self.config["save_dir"],"result.pickle"),self.result_dict,allow_pickle=True)
