@@ -9,9 +9,15 @@ from ..utilities import parse_yaml
 
 
 class Evaluate(Train):
-    def __init__(self,result_dir,skip_inference=False):
+    def __init__(self,result_dir,skip_inference=False,
+                 overwrite_dataset=None):
         config = parse_yaml(os.path.join(result_dir,"config.yaml"))
-        super().__init__(config)
+
+        if overwrite_dataset is not None:
+            for hist_name, path in overwrite_dataset.items():
+                config["datasets"][hist_name]["dataframe"] = path
+
+        super().__init__(config,init_and_save=False)
         self.result_dir = result_dir
         self.load_results()
         if not skip_inference:
@@ -25,7 +31,10 @@ class Evaluate(Train):
         print(f"Processing {max_batches} batches")
         lss_dict = {}
         for dkey in self.datasets.keys():
+            
             D = self.datasets[dkey]["Dataset"]
+            if D.type.lower() == "data":
+                continue
             data = D.input_data
             lss_arr = []
             j = 1
@@ -33,7 +42,7 @@ class Evaluate(Train):
                 
                 batched_data = data[i:i+bs]
 
-                lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=True)
+                lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=False)
                 lss.block_until_ready()
                 lss_arr.append(lss)
                 if j == max_batches:

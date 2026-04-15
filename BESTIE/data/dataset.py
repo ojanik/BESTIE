@@ -14,6 +14,7 @@ class Dataset():
         self.config = config
         self.dkey = dkey
         hkey = config["datasets"][dkey]["hist"]
+        self.type = config["datasets"][dkey]["type"]
 
         hconfig = config["hists"][hkey]
         self.livetime = hconfig["livetime"]
@@ -27,14 +28,23 @@ class Dataset():
         self.input_data, self.mask = create_input_data(df, self.hconfig)
         self.num_features = self.input_data.shape[1]
         
+        # MC only vars
+        # if data, fill with ones
+        if self.type.lower() == "mc":
+            self.weights = Array(df["weights"]) * self.livetime
+            self.grad_weights = {}
 
-        self.weights = Array(df["weights"]) * self.livetime
-        self.grad_weights = {}
+            for key in df.keys():
+                if "grad_" in key:
+                    new_key = key.replace("grad_weights_", "")
+                    self.grad_weights[new_key] = Array(df[key]) * self.livetime
 
-        for key in df.keys():
-            if "grad_" in key:
-                new_key = key.replace("grad_weights_", "")
-                self.grad_weights[new_key] = Array(df[key]) * self.livetime
+        elif self.type.lower() == "data":
+            self.weights = jnp.ones(len(df))
+            self.grad_weights = {}
+
+        else:
+            raise ValueError(f"Type must either be data or mc, but is {self.type}")
 
         # === NaN Removal ===
         input_nan_mask = jnp.any(jnp.isnan(self.input_data), axis=1)

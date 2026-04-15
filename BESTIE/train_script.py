@@ -42,12 +42,13 @@ def parser():
 
 def main(config,name,pbar):
     trainer = Train(config,name=name)
-
-    for epoch in tqdm(range(config["training"]["epochs"]),disable=not pbar):
-        trainer.train_step(validate=epoch%10==0) #
+    num_epochs = config["training"]["epochs"]
+    num_epochs = 1
+    for epoch in tqdm(range(num_epochs),disable=not pbar):
+        #trainer.train_step(validate=epoch%5==0) #
         print(f"Epoch {epoch}")
         #checkpoint
-        if (epoch+1) % 20 == 0:
+        if (epoch+1) % 5 == 0:
             print("Checkpointing...")
             trainer.save_results()
     

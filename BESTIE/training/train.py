@@ -25,41 +25,54 @@ def has_nan(pytree):
     return jax.tree_util.tree_reduce(lambda a, b: a | b, nan_trees)
 
 class Train(Pipeline):
-    def __init__(self,config,name="unnamed"):
+    def __init__(self,config,name="unnamed",init_and_save=True):
         #Dataset.__init__(self, config)
+
         Pipeline.__init__(self, config)
         
 
         self.config = config
         self.result_dict = None
-
+        self._make_result_dir(name=name)
         self.rng = random.key(config["rng"])
 
         self.datasets = {}
+        self.data_datasets = {}
         self.num_features = {}
         for dkey in self.config["datasets"]:
-            self.datasets[dkey] = {}
-            self.datasets[dkey]["hist_name"] = self.config["datasets"][dkey]["hist"]
+            print(f"Processing dataset {dkey}")
             D = Dataset(config,dkey)
-            min_idx = int(0)
-            max_idx = int(self.config["datasets"][dkey]["train_split"] * D.len_input)
-            sampler = D.get_sampler(min_idx,max_idx,smear=True)
-            self.datasets[dkey]["sampler"] = sampler
-            self.datasets[dkey]["Dataset"] = D
-            self.num_features[self.config["datasets"][dkey]["hist"]] = D.num_features
+            if D.type.lower() == "mc":
+                self.datasets[dkey] = {}
+                self.datasets[dkey]["hist_name"] = self.config["datasets"][dkey]["hist"]
+                min_idx = int(0)
+                max_idx = int(self.config["datasets"][dkey]["train_split"] * D.len_input)
+                D.max_idx = max_idx
+                sampler = D.get_sampler(min_idx,max_idx,smear=True)
+                self.datasets[dkey]["sampler"] = sampler
+                self.datasets[dkey]["Dataset"] = D
+                self.num_features[self.config["datasets"][dkey]["hist"]] = D.num_features
+            elif D.type.lower() == "data":
+                self.data_datasets[dkey] = {}
+                self.data_datasets[dkey]["hist_name"] = self.config["datasets"][dkey]["hist"]
+                self.data_datasets[dkey]["Dataset"] = D
+
+            
+        print(f"Num features: {self.num_features}")
+
         
         
+        if init_and_save:
+            self.initialize_network(self.rng)
+            self.rng = self.rerng(self.rng)
 
-        self._make_result_dir(name=name)
-        self.set_result_dict()
-        
-        self.initialize_network(self.rng)
-        self.rng = self.rerng(self.rng)
+            self.train_epoch = self.build_train_step(training=True)
+            #self.val_epoch = self.build_train_step(training=False,sampler=self.sample_val)
 
-        self.train_epoch = self.build_train_step(training=True)
-        #self.val_epoch = self.build_train_step(training=False,sampler=self.sample_val)
+            self.set_result_dict()
+            self.save_results()
+            self.save_config()
 
-        self.save_config()
 
     def get_data_dict_entry(self):
         pass
@@ -127,10 +140,14 @@ class Train(Pipeline):
             self.result_dict["history"] = []
             self.result_dict["losses"] = []
             self.result_dict["number_of_bins"] = []
-            self.result_dict["params"] = None
+            self.result_dict["params"] = self.state.params
             self.result_dict["learning_rate_epochs"] = []
             self.result_dict["ffm"] = None
             self.result_dict["val_loss"] = []
+            self.result_dict["mc_hists"] = []
+            self.result_dict["data_hists"] = []
+            self.result_dict["best_val_loss"] = jnp.inf
+            self.result_dict["best_params"] = None
 
 
     def get_sample_dict(self,rng):
@@ -229,15 +246,67 @@ class Train(Pipeline):
             print(f"Loss: {loss}")
 
     def validate(self):
-        # data = self.input_data
-        # weights = self.weights
-        # grad_weights = self.grad_weights
-        # lss_arr = []
         bs = 100_000
         val_dict = {}
         for dkey in self.datasets.keys():
             hkey = self.hist_map[dkey]
             D = self.datasets[dkey]["Dataset"]
+            data = D.input_data
+            lss_arr = []
+
+            j = 1
+            for i in tqdm(range(0,data.shape[0]-D.max_idx,bs)):
+                
+                batched_data = data[i+D.max_idx:i+bs+D.max_idx]
+
+                lss = self.calc_lss(self.result_dict["params"],batched_data,self.hist_map,dkey,drop_out_key=self.rng,training=False)
+                
+                lss.block_until_ready()
+                lss_arr.append(lss)
+                j += 1
+            lss_arr = jnp.concatenate(lss_arr,axis=0)
+            #lss_dict[dkey] = lss_arr
+            split_correction_factor =  ((data.shape[0])/(data.shape[0]-D.max_idx))
+            weights = D.weights[D.max_idx:]
+            weights *= split_correction_factor
+            grad_weights = D.grad_weights
+            for k in grad_weights:
+                grad_weights[k] = split_correction_factor * grad_weights[k]
+
+
+            
+            lss1 = lss_arr[:,0]
+            lss2 = lss_arr[:,1]
+            bins_lss = jnp.linspace(self.config["hists"][hkey]["hists"]["bins_low"],self.config["hists"][hkey]["hists"]["bins_up"],self.config["hists"][hkey]["hists"]["bins_number"]+1)
+            mu, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(weights))
+            self.result_dict["mc_hists"].append(mu)
+            mu = mu.flatten()
+            grad_hist = {}
+            for k in grad_weights:
+                gw = jnp.array(grad_weights[k])
+                gw = gw[D.max_idx:]
+                g, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=gw)
+                g = g.flatten()
+                g = g / jnp.sqrt(mu+1e-8)
+                grad_hist[k] = g
+
+            values = jnp.array([jnp.array(v) for v in grad_hist.values()])
+            keys = [k for k in grad_hist.keys()]
+            fisher_information = values[:, None, :] * values[None, :, :]
+            fisher_information = jnp.sum(fisher_information,axis=-1)
+            cov = jnp.linalg.inv(fisher_information)
+            # print({keys[i]:jnp.diag(cov)[i] for i in range(len(keys))})
+            val_loss ={keys[i]:jnp.sqrt(jnp.diag(cov)[i]) for i in range(len(keys))}
+            print(val_loss)
+            self.result_dict["val_loss"].append(val_loss)
+
+            if val_loss["galactic_norm"] < self.result_dict["best_val_loss"]:
+                self.result_dict["best_val_loss"] = val_loss["galactic_norm"]
+                self.result_dict["best_params"] = self.state.params
+
+        for dkey in self.data_datasets.keys():
+            hkey = self.hist_map[dkey]
+            D = self.data_datasets[dkey]["Dataset"]
             data = D.input_data
             lss_arr = []
 
@@ -261,24 +330,11 @@ class Train(Pipeline):
             
             lss1 = lss_arr[:,0]
             lss2 = lss_arr[:,1]
-            bins_lss = jnp.linspace(self.config["hists"][hkey]["hists"]["bins_low"],self.config["hists"][hkey]["hists"]["bins_up"],self.config["hists"][hkey]["hists"]["bins_number"])
+            bins_lss = jnp.linspace(self.config["hists"][hkey]["hists"]["bins_low"],self.config["hists"][hkey]["hists"]["bins_up"],self.config["hists"][hkey]["hists"]["bins_number"]+1)
             mu, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(weights))
-            mu = mu.flatten()
-            grad_hist = {}
-            for k in grad_weights:
+            self.result_dict["data_hists"].append(mu)
 
-                g, _, _ = jnp.histogram2d(lss1,lss2,bins=[bins_lss,bins_lss],weights=jnp.array(grad_weights[k]))
-                g = g.flatten()
-                g = g / jnp.sqrt(mu+1e-8)
-                grad_hist[k] = g
 
-            values = jnp.array([jnp.array(v) for v in grad_hist.values()])
-            keys = [k for k in grad_hist.keys()]
-            fisher_information = values[:, None, :] * values[None, :, :]
-            fisher_information = jnp.sum(fisher_information,axis=-1)
-            cov = jnp.linalg.inv(fisher_information)
-            print({keys[i]:jnp.diag(cov)[i] for i in range(len(keys))})
-            self.result_dict["val_loss"].append({keys[i]:jnp.diag(cov)[i] for i in range(len(keys))})
         return 0
     def save_results(self):
         jnp.save(os.path.join(self.config["save_dir"],"result.pickle"),self.result_dict,allow_pickle=True)

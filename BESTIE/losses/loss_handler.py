@@ -14,9 +14,9 @@ def loss_handler(config):
         if optimality.lower() in ["a","a_optimality","aoptimality"]:
             from .fisher_losses import A_optimality
             opti = A_optimality
-        elif optimality.lower() in ["s","s_optimality","soptimality"]:
-            from .fisher_losses import S_optimality
-            opti = S_optimality
+        elif optimality.lower() in ["c","c_optimality","coptimality","correlation"]:
+            from .fisher_losses import C_optimality
+            opti = C_optimality
         elif optimality.lower() in ["d","d_optimality","doptimality","ellipsoid","uncertainty_ellipsoid","ellipsoid_volume","uncertainty_ellipsoid_volume"]:
             from .fisher_losses import D_optimality
             opti = D_optimality
@@ -28,6 +28,7 @@ def loss_handler(config):
         loss_kwargs["weight_norm"] = lconfig.get("weight_norm",None)
         loss_kwargs["rel_uncertainty_threshold"] = lconfig["soft_masking"].get("rel_uncertainty_threshold",None)
         loss_kwargs["mask_sharpness"] = lconfig["soft_masking"].get("mask_sharpness",None)
+        loss_kwargs["softmasking"] = lconfig["soft_masking"].get("use_softmasking",True)
 
         from .fisher_losses import fisher_loss
         losses.append(fisher_loss)

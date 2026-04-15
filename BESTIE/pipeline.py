@@ -104,7 +104,7 @@ class Pipeline:
                                      training=training, drop_out_key=drop_out_key)
 
             hist_names = {k: hist_map[k] for k in lss_dict}
-
+            
             hist_dict = self.get_histograms(lss_dict, hist_names)
 
             grouped = {}

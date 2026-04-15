@@ -9,7 +9,7 @@ from ..utilities import rearrange_matrix
 
 
 
-def fisher_loss(mu,ssq,grad_hist,softmasking=True,**kwargs):
+def fisher_loss(mu,ssq,grad_hist,**kwargs):
     #BUG overall scale of loss calculated here is off. Minimization still works.
     parameters_to_optimize = kwargs.pop("parameters_to_optimize")
     opti = kwargs.pop("opti")
@@ -18,6 +18,7 @@ def fisher_loss(mu,ssq,grad_hist,softmasking=True,**kwargs):
     # Optional soft masking hyperparameters
     threshold = kwargs.pop("rel_uncertainty_threshold", 0.2)  # e.g. 20% relative uncertainty
     sharpness = kwargs.pop("mask_sharpness", 200)           # how steep the sigmoid is
+    softmasking = kwargs.pop("use_softmasking",True)
     eps = 1e-8
 
     information = jax.tree_util.tree_map(lambda v: v/(jnp.sqrt(mu+1e-8)), grad_hist)
@@ -34,8 +35,7 @@ def fisher_loss(mu,ssq,grad_hist,softmasking=True,**kwargs):
     # values[None, :, :] has shape (1, 10, 1600)
     # Resulting broadcasted product shape: (10, 10, 1600)
     fisher_information = values[:, None, :] * values[None, :, :]
-
-    if threshold is not None or sharpness is not None or softmasking:
+    if softmasking:
         # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
         rel_unc = jnp.sqrt(ssq+eps**2) / (mu + eps)
         soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)  # shape: (n_bins,)
@@ -44,6 +44,7 @@ def fisher_loss(mu,ssq,grad_hist,softmasking=True,**kwargs):
 
 
     fisher_information = jnp.sum(fisher_information,axis=-1)
+    
 
     
     signal_idx = [keys.index(p) for p in parameters_to_optimize]
@@ -80,3 +81,15 @@ def A_optimality(fisher,weight_norm=None):
 
 def D_optimality(fisher,signal_idx=None):
     return 1/jnp.sqrt(jnp.linalg.det(fisher))
+
+def C_optimality(fisher):
+    """
+    Penalize correlations between parameters.
+    Minimizes the squared Frobenius norm of the off-diagonal correlation matrix.
+    """
+    cov = calc_cov(fisher)
+    diag_sqrt = jnp.sqrt(jnp.diag(cov))
+    norm = jnp.outer(diag_sqrt, diag_sqrt)
+    corr = cov / norm
+    off_diag = corr - jnp.diag(jnp.diag(corr))
+    return jnp.sum(off_diag ** 2)
