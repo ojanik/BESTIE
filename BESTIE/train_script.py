@@ -1,7 +1,6 @@
 import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 import jax
-jax.config.update("jax_enable_x64", True)
 from BESTIE.training.train import Train
 import BESTIE
 
