@@ -1,6 +1,7 @@
 import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 import jax
+jax.config.update("jax_enable_x64", True)
 from BESTIE.training.train import Train
 import BESTIE
 
@@ -42,9 +43,9 @@ def parser():
 def main(config,name,pbar):
     trainer = Train(config,name=name)
     num_epochs = config["training"]["epochs"]
-    num_epochs = 1
     for epoch in tqdm(range(num_epochs),disable=not pbar):
         print(f"Epoch {epoch}")
+        trainer.train_step(validate=epoch%5==0)
         if (epoch+1) % 5 == 0:
             print("Checkpointing...")
             trainer.save_results()
