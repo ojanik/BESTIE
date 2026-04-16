@@ -248,7 +248,7 @@ class Train(Pipeline):
             values = jnp.array(list(grad_hist.values()))
             keys = list(grad_hist.keys())
             fisher_information = jnp.einsum('ib,jb->ij', values, values)
-            fim_reg = self.config["training"].get("fim_regularization", 1e-6)
+            fim_reg = self.config["training"].get("fim_regularization", 1e-3)
             fisher_reg = fisher_information + fim_reg * jnp.eye(len(keys))
             cov = jnp.linalg.solve(fisher_reg, jnp.eye(len(keys)))
             val_loss = {keys[i]: jnp.sqrt(jnp.diag(cov)[i]) for i in range(len(keys))}

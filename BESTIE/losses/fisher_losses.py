@@ -11,7 +11,7 @@ def fisher_loss(mu,ssq,grad_hist,**kwargs):
     parameters_to_optimize = kwargs.pop("parameters_to_optimize")
     opti = kwargs.pop("opti")
     weight_norm = kwargs.pop("weight_norm", None)
-    fim_reg = kwargs.pop("fim_regularization", 1e-6)
+    fim_reg = kwargs.pop("fim_regularization", 1e-3)
 
     # Optional soft masking hyperparameters
     threshold = kwargs.pop("rel_uncertainty_threshold", 0.2)  # e.g. 20% relative uncertainty
@@ -42,16 +42,21 @@ def fisher_loss(mu,ssq,grad_hist,**kwargs):
     signal_idx = [keys.index(p) for p in parameters_to_optimize]
     fish = rearrange_matrix(fisher_information, signal_idx)
 
+    # Regularise the full FIM before block decomposition. This guarantees the
+    # Schur complement S = A - B C^{-1} B^T is positive definite (eigenvalues
+    # >= fim_reg), preventing NaN in opti() when the FIM is near-zero early
+    # in training. fim_reg should be large enough to stabilise float32 but
+    # small relative to the converged FIM values (default 1e-3).
+    fish = fish + fim_reg * jnp.eye(fish.shape[0])
+
     k = len(signal_idx)
     A = fish[:k, :k]
     B = fish[:k, k:]
     C = fish[k:, k:]
-    # Regularise C before solve to keep it well-conditioned in float32
-    C_reg = C + fim_reg * jnp.eye(C.shape[0])
-    S = A - B @ jnp.linalg.solve(C_reg, B.T)
+    S = A - B @ jnp.linalg.solve(C, B.T)
     return opti(S, weight_norm)
 
-def calc_cov(fisher, reg=1e-6):
+def calc_cov(fisher, reg=1e-3):
     fisher_reg = fisher + reg * jnp.eye(fisher.shape[0])
     return jnp.linalg.inv(fisher_reg)
 
