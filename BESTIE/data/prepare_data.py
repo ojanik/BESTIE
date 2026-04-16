@@ -28,7 +28,7 @@ def create_input_data(df,config):
             try:
                 print(f"Scaling {vari['var_name']} with {vari['scale']}")
                 dtemp = getattr(onp, vari["scale"])(dtemp)
-            except:
+            except AttributeError:
                 print("Couldn't find given scale method. Continuing without scaling the data.")
 
         if vari["transform"] in ["standardize"]:

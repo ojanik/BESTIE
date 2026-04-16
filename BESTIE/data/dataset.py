@@ -24,7 +24,6 @@ class Dataset():
 
         dframe_path = config["datasets"][dkey]["dataframe"]
         df = pd.read_parquet(dframe_path)
-        #df = df.sample(frac=1) # shuffle the dataframe
         self.input_data, self.mask = create_input_data(df, self.hconfig)
         self.num_features = self.input_data.shape[1]
         
@@ -63,7 +62,6 @@ class Dataset():
         self.weights = self.weights[valid_mask&self.mask]
 
         self.sample_weights = self.calc_sample_weights(self.input_data)
-        #self.sample_weights = self.sample_weights[valid_mask&self.mask]
         self.mask = valid_mask&self.mask
         for k in self.grad_weights:
             self.grad_weights[k] = self.grad_weights[k][valid_mask&self.mask]
@@ -95,7 +93,7 @@ class Dataset():
             rng, subkey = jax.random.split(rng)
             indices = jax.random.choice(
                 subkey, max_idx - min_idx, shape=(batch_size,),
-                p=sample_weights_draw, replace=False
+                p=sample_weights_draw, replace=True
             ) + min_idx
 
             x = input_data[indices]

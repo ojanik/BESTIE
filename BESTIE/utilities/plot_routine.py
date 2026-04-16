@@ -73,21 +73,12 @@ def plot_routine(model_path,
             lss = apply_fn({"params": params},batched_input_data)[:,0]
         else:
             lss = jnp.concatenate([lss,apply_fn({"params": params},batched_input_data)[:,0]])
-    
 
-    #shift lss to be between 0 and 1 like it is done during training
-    # transform function
-
-    
-    
     mask = mask_exists&mask_cut
-
     lss = lss[mask]
 
     kwargs = {}
     kwargs["lss0"] = Array(df["lss0_standard_binning"])[mask]
-    
-    #phi0
 
     init_params = results_dict.item()["init_params"]
     for i in tqdm(range(num_parts),disable=True):
@@ -97,7 +88,6 @@ def plot_routine(model_path,
             phi0 = apply_fn({"params": init_params},batched_input_data)[:,0]
         else:
             phi0 = jnp.concatenate([phi0,apply_fn({"params": init_params},batched_input_data)[:,0]])
-    #del(input_data)
 
     kwargs["phi0"] = phi0[mask]
 
@@ -109,10 +99,6 @@ def plot_routine(model_path,
     
     lss *= bin_scale_up
 
-
-    #mask2 = ~jnp.isnan(lss[mask])
-    #lss -= jnp.min(lss[mask][mask2])
-    #lss /= jnp.max(lss[mask][mask2])
     print("Creating pipeline object")
     injected_params = config["injected_params"]
     obj = BESTIE.Optimization_Pipeline(config)
@@ -135,10 +121,8 @@ def plot_routine(model_path,
 
     if make_weighted_hist or all_flag:
         print("--- Making weighted hist ---")
-        hvar = lss#[mask]
-        #hvar = onp.array(df["deltaPsi"])[mask]
+        hvar = lss
         bins = onp.linspace(config["hists"]["bins_low"],config["hists"]["bins_up"],config["hists"]["bins_number"])
-        #bins = onp.linspace(onp.min(hvar),onp.max(hvar),1000)
         H_total,_,_,_ = plt.hist2d(hvar,hvar,bins=[bins,bins],weights = obj.calc_weights(injected_params,aux)[:,0])
 
         H_arr = []
@@ -155,7 +139,6 @@ def plot_routine(model_path,
         
         fig, ax = plt.subplots()
         plt.grid()
-        #ax.stairs(H_total.sum(axis=1),jnp.linspace(-1,1,nob+1),label="total")
         for histo in H_arr:
             label = histo["norm_key"][:-5]
             ax.stairs(histo["H"],bins,label=label)
@@ -166,14 +149,13 @@ def plot_routine(model_path,
         ax.set_axisbelow(True)
         ax.set_xlim(onp.min(hvar),onp.max(hvar))
         ax.set_ylim(1e-5, None)
-        #ax.set_xscale("log")
         plt.legend()
         plt.savefig(os.path.join(model_path,"weighted_hist.png"),dpi=256)
         plt.close()
 
     if make_unweighted_hist or all_flag:
         print("--- Making unweighted hist ---")
-        hvar = lss#[mask]
+        hvar = lss
         bins = onp.linspace(config["hists"]["bins_low"],config["hists"]["bins_up"],config["hists"]["bins_number"])
         H,_,_,_ = plt.hist2d(hvar,hvar,bins=[bins,bins])
         plt.close()
@@ -184,25 +166,13 @@ def plot_routine(model_path,
         ax.set_yscale("log")
         ax.set_xlabel("lss")
         ax.set_ylabel("number of MC events, unweighted")
-        
         ax.set_xlim(onp.min(hvar),onp.max(hvar))
-
-        #bin_numbers = onp.arange(1, config["hists"]["bins_number"] + 1)
-
-        # Choose to label every 100th bin, for example
-        #step = 100
-        #selected_bins = bin_numbers[::step] 
-        #bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Calculate bin centers
-        #selected_bin_centers = bin_centers[::step] 
-
         plt.savefig(os.path.join(model_path,"unweighted_hist.png"),dpi=256)
         plt.close()
 
     if make_2D_scatter or all_flag:
         print("--- Making 2D scatter ---")
         nob = config["hists"]["bins_number"]
-        #digi = jnp.digitize(lss,bins=jnp.linspace(0,1,nob+1))
-
         plt.scatter(Array(df["energy_truncated"])[mask],jnp.cos(Array(df["zenith_MPEFit"]))[mask],c=lss,cmap="tab20",s=1)
         plt.xscale("log")
         plt.xlabel("reco energy")
@@ -219,12 +189,7 @@ def plot_routine(model_path,
     if make_2D_scatter_galactic or all_flag:
         print("--- Making 2D scatter ---")
         nob = config["hists"]["bins_number"]
-        #digi = jnp.digitize(lss,bins=jnp.linspace(0,1,nob+1))
-
-            
-
         scatter = plt.scatter(Array(df["ra_MPEFit"])[mask],jnp.cos(Array(df["zenith_MPEFit"]))[mask],c=lss,cmap="tab20",s=1)
-        #plt.xscale("log")
         if galactic_contour_path is not None:
             galactic_contour = onp.load(galactic_contour_path)
             RA_grid = galactic_contour['RA_grid']

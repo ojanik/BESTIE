@@ -1,10 +1,9 @@
-
-import jax.numpy as jnp
-from jax.scipy.stats.norm import cdf as ncdf
-import jax.scipy as jsp
-Array = jnp.array
-from functools import partial
 import jax
+import jax.numpy as jnp
+import jax.scipy as jsp
+from functools import partial
+
+Array = jnp.array
 
 @partial(jax.jit, static_argnames=["density", "reflect_infinities"])
 def bKDE(
@@ -36,20 +35,12 @@ def bKDE(
     Array
         1D array of bKDE counts.
     """
-    # bandwidth = bandwidth or events.shape[-1] ** -0.25  # Scott's rule
-    #bw = jax.nn.sigmoid(lss[:,1])
-    #lss = lss[:,0]
-    #lss -= jnp.min(lss)
-    #lss /= jnp.max(lss)
-
     bins = jnp.array([-jnp.inf, *bins, jnp.inf]) if reflect_infinities else bins
 
     # get cumulative counts (area under kde) for each set of bin edges
-
     cdf = jsp.stats.norm.cdf(bins.reshape(-1, 1), loc=lss, scale=bandwidth)
     mu_weights = mu_weights.squeeze()
     mu_cdf = cdf * mu_weights
-    #cdf /= weights.sum()
     # sum kde contributions in each bin
     counts = (mu_cdf[1:, :] - mu_cdf[:-1, :]).sum(axis=1)
 
@@ -65,17 +56,11 @@ def bKDE(
         counts = counts / db / counts.sum(axis=0)
 
     if reflect_infinities:
-        counts = (
-            counts[1:-1]
-            + jnp.array([counts[0]] + [0] * (len(counts) - 3))
-            + jnp.array([0] * (len(counts) - 3) + [counts[-1]])
-        )
+        # Fold the mass from the ±inf overflow bins into the first/last real bins.
+        # Capture edge values before slicing so the indices stay unambiguous.
+        counts = counts[1:-1].at[0].add(counts[0]).at[-1].add(counts[-1])
         if calc_sigma:
-            sigma = (
-                sigma[1:-1]
-                + jnp.array([sigma[0]] + [0] * (len(sigma) - 3))
-                + jnp.array([0] * (len(sigma) - 3) + [sigma[-1]])
-            )
+            sigma = sigma[1:-1].at[0].add(sigma[0]).at[-1].add(sigma[-1])
 
     if calc_sigma:
         return counts, sigma

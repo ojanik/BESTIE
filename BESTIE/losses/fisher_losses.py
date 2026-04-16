@@ -1,6 +1,3 @@
-import jax.numpy as jnp
-Array = jnp.array
-from jax import jacfwd, vmap
 import jax
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten
@@ -24,44 +21,32 @@ def fisher_loss(mu,ssq,grad_hist,**kwargs):
     information = jax.tree_util.tree_map(lambda v: v/(jnp.sqrt(mu+1e-8)), grad_hist)
     
     
-    flat_values, kkeys = tree_flatten(information)
-    
-    values = jnp.stack(flat_values)  # ✅ correct, always
+    flat_values, _ = tree_flatten(information)
+    values = jnp.stack(flat_values)
+    keys = list(information.keys())
 
-    keys = list(information.keys())  # use original dict for indexing
- 
-    # Compute outer products along the new axis
-    # values[:, None, :] has shape (10, 1, 1600)
-    # values[None, :, :] has shape (1, 10, 1600)
-    # Resulting broadcasted product shape: (10, 10, 1600)
-    fisher_information = values[:, None, :] * values[None, :, :]
     if softmasking:
         # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
-        rel_unc = jnp.sqrt(ssq+eps**2) / (mu + eps)
-        soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)  # shape: (n_bins,)
-        # Apply soft mask (broadcasted to matrix shape)
-        fisher_information = fisher_information * soft_mask[None, None, :]
+        rel_unc = jnp.sqrt(ssq + eps**2) / (mu + eps)
+        soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)
+        # Fold sqrt(mask) into values so the outer product applies the mask once:
+        # einsum('ib,jb->ij') gives sum_b v_i(b)*v_j(b), and with sqrt(mask) folded
+        # in we get sum_b v_i(b) * mask(b) * v_j(b) as desired.
+        values = values * jnp.sqrt(soft_mask)[None, :]
 
+    # Outer product over parameters, summed over bins — avoids materialising
+    # the full (n_params, n_params, n_bins) intermediate tensor.
+    fisher_information = jnp.einsum('ib,jb->ij', values, values)
 
-    fisher_information = jnp.sum(fisher_information,axis=-1)
-    
-
-    
     signal_idx = [keys.index(p) for p in parameters_to_optimize]
-
-
     fish = rearrange_matrix(fisher_information, signal_idx)
 
     k = len(signal_idx)
     A = fish[:k, :k]
     B = fish[:k, k:]
     C = fish[k:, k:]
-    C_inv = jnp.linalg.inv(C)
-    S = A - B @ C_inv @ B.T
-    # reg = 1e-2 * jnp.eye(fish.shape[0])
-    # S = fish + reg
-    #jax.debug.print("{x}",x=jnp.diag(jnp.linalg.inv(fish)))
-    #jax.debug.print("{x}",x=jnp.diag(jnp.linalg.inv(S)))
+    # solve(C, B.T) is more numerically stable than inv(C) @ B.T
+    S = A - B @ jnp.linalg.solve(C, B.T)
     return opti(S, weight_norm)
 
 def calc_cov(fisher):

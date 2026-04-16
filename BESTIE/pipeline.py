@@ -12,7 +12,6 @@ class Pipeline:
     def __init__(self, config):
         self.config = config
 
-        # Ensure this returns a dict with an 'apply' function
         self.calc_hist = hist_handler(self.config)
         self.transform_fun = transformation_handler(self.config["transformation"])
         self.model_dict = model_handler(self.config)
@@ -41,7 +40,6 @@ class Pipeline:
             rngs={"dropout": drop_out_key}
             )
 
-        #lss *= self.config["hists"][hkey]["hists"]["bins_up"]
         lss = self.transform_fun(lss)
         return lss
 
@@ -97,75 +95,9 @@ class Pipeline:
 
         return hist_dict
 
-    def _set_optimization_pipeline(self, hist_map: dict):
-        @partial(jax.jit, static_argnames=["training"])
-        def optimization_pipeline(net_params, data_dict, training=True, drop_out_key=None):
-            lss_dict = self.calc_lss_dict(net_params, data_dict, hist_map,
-                                     training=training, drop_out_key=drop_out_key)
-
-            hist_names = {k: hist_map[k] for k in lss_dict}
-            
-            hist_dict = self.get_histograms(lss_dict, hist_names)
-
-            grouped = {}
-            for name, entry in hist_dict.items():
-                hname = hist_names[name]
-                if hname not in grouped:
-                    grouped[hname] = {
-                        "mu": entry["mu"],
-                        "ssq": entry["ssq"],
-                        "grad_hist": entry["grad_hist"].copy()
-                    }
-                else:
-                    grouped[hname]["mu"] += entry["mu"]
-                    grouped[hname]["ssq"] += entry["ssq"]
-                    for k, v in entry["grad_hist"].items():
-                        if k in grouped[hname]["grad_hist"]:
-                            grouped[hname]["grad_hist"][k] += v
-                        else:
-                            grouped[hname]["grad_hist"][k] = v
-
-            all_mu = []
-            all_ssq = []
-            grad_chunks = []
-            all_keys = set()
-
-            for group in grouped.values():
-                all_mu.append(group["mu"])
-                all_ssq.append(group["ssq"])
-                grad_chunks.append(group["grad_hist"])
-                all_keys.update(group["grad_hist"].keys())
-
-            chunk_lengths = [g["mu"].shape[0] for g in grouped.values()]
-
-            grad_hist = {}
-            for k in all_keys:
-                vs = []
-                for chunk, length in zip(grad_chunks, chunk_lengths):
-                    if k in chunk:
-                        vs.append(chunk[k])
-                    else:
-                        example = next(iter(chunk.values()))
-                        shape = (length,) + example.shape[1:]
-                        vs.append(jnp.zeros(shape, dtype=example.dtype))
-                grad_hist[k] = jnp.concatenate(vs)
-
-            mu = jnp.concatenate(all_mu)
-            #("Mu sum {x}",x=mu.sum())
-            ssq = jnp.concatenate(all_ssq)
-            losses = self.calc_loss(mu, ssq, grad_hist)
-            total_loss = jnp.sum(losses)
-
-            return total_loss, losses
-
-        self._optimization_pipeline = optimization_pipeline
-
-    def test_hist(self, net_params, data_dict, rng):
-        lss_dict = self.calc_lss_dict(net_params, data_dict, self.hist_map,
-                                 drop_out_key=rng, training=False)
-        hist_names = {k: self.hist_map[k] for k in data_dict}
-        hist_dict = self.get_histograms(lss_dict, hist_names)
-
+    def _group_and_concat_hists(self, hist_dict: dict, hist_names: dict):
+        """Group per-dataset histograms by hist name, sum within each group, then
+        concatenate across groups into single mu/ssq/grad_hist arrays."""
         grouped = {}
         for name, entry in hist_dict.items():
             hname = hist_names[name]
@@ -173,7 +105,7 @@ class Pipeline:
                 grouped[hname] = {
                     "mu": entry["mu"],
                     "ssq": entry["ssq"],
-                    "grad_hist": entry["grad_hist"].copy()
+                    "grad_hist": entry["grad_hist"].copy(),
                 }
             else:
                 grouped[hname]["mu"] += entry["mu"]
@@ -184,40 +116,44 @@ class Pipeline:
                     else:
                         grouped[hname]["grad_hist"][k] = v
 
-        all_mu = []
-        all_ssq = []
-        grad_chunks = []
-        all_keys = set()
-
-        for group in grouped.values():
-            all_mu.append(group["mu"])
-            all_ssq.append(group["ssq"])
-            grad_chunks.append(group["grad_hist"])
-            all_keys.update(group["grad_hist"].keys())
-
+        all_keys = set().union(*(g["grad_hist"].keys() for g in grouped.values()))
         chunk_lengths = [g["mu"].shape[0] for g in grouped.values()]
 
         grad_hist = {}
         for k in all_keys:
             vs = []
-            for chunk, length in zip(grad_chunks, chunk_lengths):
-                if k in chunk:
-                    vs.append(chunk[k])
+            for group, length in zip(grouped.values(), chunk_lengths):
+                if k in group["grad_hist"]:
+                    vs.append(group["grad_hist"][k])
                 else:
-                    example = next(iter(chunk.values()))
-                    shape = (length,) + example.shape[1:]
-                    vs.append(jnp.zeros(shape, dtype=example.dtype))
+                    example = next(iter(group["grad_hist"].values()))
+                    vs.append(jnp.zeros((length,) + example.shape[1:], dtype=example.dtype))
             grad_hist[k] = jnp.concatenate(vs)
 
-        # clip_mask = mu < 1e-2
-
-
-
-        mu = jnp.concatenate(all_mu)
-        
-        ssq = jnp.concatenate(all_ssq)
-
+        mu = jnp.concatenate([g["mu"] for g in grouped.values()])
+        ssq = jnp.concatenate([g["ssq"] for g in grouped.values()])
         return mu, ssq, grad_hist
+
+    def _set_optimization_pipeline(self, hist_map: dict):
+        @partial(jax.jit, static_argnames=["training"])
+        def optimization_pipeline(net_params, data_dict, training=True, drop_out_key=None):
+            lss_dict = self.calc_lss_dict(net_params, data_dict, hist_map,
+                                          training=training, drop_out_key=drop_out_key)
+            hist_names = {k: hist_map[k] for k in lss_dict}
+            hist_dict = self.get_histograms(lss_dict, hist_names)
+            mu, ssq, grad_hist = self._group_and_concat_hists(hist_dict, hist_names)
+            losses = self.calc_loss(mu, ssq, grad_hist)
+            return jnp.sum(losses), losses
+
+        self._optimization_pipeline = optimization_pipeline
+
+    def test_hist(self, net_params, data_dict, rng):
+        """Return (mu, ssq, grad_hist) for the given data without running the full loss."""
+        lss_dict = self.calc_lss_dict(net_params, data_dict, self.hist_map,
+                                      drop_out_key=rng, training=False)
+        hist_names = {k: self.hist_map[k] for k in data_dict}
+        hist_dict = self.get_histograms(lss_dict, hist_names)
+        return self._group_and_concat_hists(hist_dict, hist_names)
 
 
 

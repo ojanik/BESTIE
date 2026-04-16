@@ -8,10 +8,7 @@ jax.config.update("jax_enable_x64", True)
 from BESTIE.training.evaluate import Evaluate
 import jax.numpy as jnp
 import numpy as onp
-import numpy as onp
 import matplotlib.pyplot as plt
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 
 from tqdm import tqdm
 

@@ -1,10 +1,9 @@
+import jax
 import jax.numpy as jnp
 from jax import vmap
-Array = jnp.array
 from typing import Sequence
-from functools import reduce
 
-import jax
+Array = jnp.array
 
 def tanh_norm(bin_width,slope):
     """Return the normalization factor for a tanh binning."""
@@ -43,8 +42,11 @@ def tanhHistND(
             memberships = tanh_binning(x_event[d], bins_list[d], slopes[d])
             memberships = memberships * norm_factors[d]
             soft_bins.append(memberships)
-        # Tensor product (outer product) across all dimensions
-        combined = reduce(lambda a, b: jnp.outer(a, b).reshape(-1), soft_bins)
+        # Tensor product across all dimensions: iteratively take the outer
+        # product and flatten, giving a (b1*b2*...*bD,) membership vector.
+        combined = soft_bins[0]
+        for b in soft_bins[1:]:
+            combined = jnp.outer(combined, b).ravel()
         combined = combined / jnp.sum(combined)
         return combined  # Normalize to sum to 1
 

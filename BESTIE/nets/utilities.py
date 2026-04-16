@@ -100,45 +100,6 @@ class SplitGatedDenseBlock(nn.Module):
         return skip + h
 
 
-# def ResNetBlock_Dense(x,c_out,act_fn=nn.relu):
-#     skip = x
-#     z = nn.Dense(c_out)(x)
-#     #z = nn.BatchNorm()(z, use_running_average=False)
-#     z = act_fn(z)
-#     z = nn.Dense(c_out)(z)
-#     #z = nn.BatchNorm()(z, use_running_average=False)
-
-
-#     x_out = act_fn(z + skip)
-#     return x_out
-
-# def Gated_Dense(x,c_out,act_fn=nn.relu):
-#     skip = x
-#     z = nn.Dense(c_out)(x)
-#     z = nn.LayerNorm(
-#                         epsilon=1e-6,
-#                         reduction_axes=-1,
-#                         feature_axes=-1
-#                     )(z)
-#     z = act_fn(z)
-#     u,v = jnp.split(z,2,axis=-1)
-    
-#     v = nn.LayerNorm(
-#                         epsilon=1e-6,
-#                         reduction_axes=-1,
-#                         feature_axes=-1
-#                     )(v)
-#     v = nn.Dense(int(c_out/2),kernel_init=nn.initializers.zeros, bias_init=nn.initializers.ones)(v)
-
-#     z = jnp.multiply(u,v)
-
-#     z = nn.Dense(c_out, kernel_init=nn.initializers.zeros)(z)
-#     #z = nn.BatchNorm()(z, use_running_average=False)
-
-
-#     x_out = act_fn(z + skip)
-#     return x_out
-
 def sin(x):
     return jnp.sin(x)
 
