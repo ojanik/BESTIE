@@ -25,6 +25,7 @@ class Dataset():
 
         dframe_path = config["datasets"][dkey]["dataframe"]
         df = pd.read_parquet(dframe_path)
+        df = df.sample(frac=1, random_state=config["rng"]).reset_index(drop=True)
         self.input_data, self.mask = create_input_data(df, self.hconfig)
         _std_raw = (self._extract_standard_hist_data(df, hconfig["standard_hist"])
                     if "standard_hist" in hconfig else None)
