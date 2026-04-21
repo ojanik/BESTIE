@@ -20,6 +20,9 @@ def loss_handler(config):
         elif optimality.lower() in ["d","d_optimality","doptimality","ellipsoid","uncertainty_ellipsoid","ellipsoid_volume","uncertainty_ellipsoid_volume"]:
             from .fisher_losses import D_optimality
             opti = D_optimality
+        elif optimality.lower() in ["m", "m_optimality", "moptimality", "ac"]:
+            from .fisher_losses import M_optimality
+            opti = M_optimality
         else:
             raise NotImplementedError(f"The {optimality} method for optimality is not yet implemented")
         

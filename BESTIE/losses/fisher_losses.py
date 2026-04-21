@@ -60,24 +60,22 @@ def calc_cov(fisher, reg=1e-3):
     fisher_reg = fisher + reg * jnp.eye(fisher.shape[0])
     return jnp.linalg.inv(fisher_reg)
 
-def A_optimality(fisher,weight_norm=None):
+def A_optimality(fisher, **kwargs):
+    weight_norm = kwargs.get("weight_norm")
     cov = calc_cov(fisher)
     diag = jnp.diag(cov)
     if weight_norm is not None:
-        if isinstance(weight_norm,list):
-            weight_norm = jnp.array(weight_norm)
-        trace = jnp.sum(jnp.sqrt(diag)/weight_norm)
-    else:
-        trace = jnp.sum(jnp.sqrt(diag))
-    loss = trace
-    return loss
+        weight_norm = jnp.array(weight_norm) if isinstance(weight_norm, list) else weight_norm
+        return jnp.sum(jnp.sqrt(diag) / weight_norm)
+    return jnp.sum(jnp.sqrt(diag))
 
-def D_optimality(fisher,signal_idx=None):
-    return 1/jnp.sqrt(jnp.linalg.det(fisher))
 
-def C_optimality(fisher):
-    """
-    Penalize correlations between parameters.
+def D_optimality(fisher, **kwargs):
+    return 1 / jnp.sqrt(jnp.linalg.det(fisher))
+
+
+def C_optimality(fisher, **kwargs):
+    """Penalize correlations between parameters.
     Minimizes the squared Frobenius norm of the off-diagonal correlation matrix.
     """
     cov = calc_cov(fisher)
@@ -86,3 +84,14 @@ def C_optimality(fisher):
     corr = cov / norm
     off_diag = corr - jnp.diag(jnp.diag(corr))
     return jnp.sum(off_diag ** 2)
+
+def M_optimality(fisher, **kwargs):
+    """Minimize parameter variances and their mutual correlations.
+    
+    alpha: weight on variance term (A-optimality), default 1.0
+    beta:  weight on correlation term (C-optimality), default 1.0
+    weight_norm: optional per-parameter normalization for variances
+    """
+    alpha = kwargs.get("alpha", 1.0)
+    beta = kwargs.get("beta", 1.0)
+    return alpha * A_optimality(fisher, **kwargs) + beta * C_optimality(fisher, **kwargs)
