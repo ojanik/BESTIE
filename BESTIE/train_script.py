@@ -93,7 +93,7 @@ def main():
         # ── Phase 1: float64 warmup ──────────────────────────────────────────
         warmup_dir = os.path.join(config["output_dir"], f"{args.name}_warmup")
         os.makedirs(warmup_dir, exist_ok=True)
-        warmup_checkpoint = os.path.join(warmup_dir, "result.pickle")
+        warmup_checkpoint = os.path.join(warmup_dir, "result.pickle.npy")
 
         print(f"=== Phase 1: float64 warmup for {args.warmup_epochs} epochs ===")
         run_float64_warmup(args, warmup_dir, args.warmup_epochs)

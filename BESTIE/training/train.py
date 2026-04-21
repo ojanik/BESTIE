@@ -79,12 +79,16 @@ class Train(Pipeline):
 
     @staticmethod
     def load_checkpoint_params(path, dtype=jnp.float32):
-        """Load params from a result.pickle checkpoint and cast to dtype.
+        """Load params from a checkpoint and cast to dtype.
 
-        Typical use: warm-starting a float32 run from a float64 checkpoint.
-            pretrained = Train.load_checkpoint_params("/path/to/result.pickle")
+        Accepts either the directory produced by Train or the full path to the
+        result file (result.pickle.npy). Typical use: warm-starting a float32
+        run from a float64 checkpoint.
+            pretrained = Train.load_checkpoint_params("/path/to/run_dir/")
             trainer = Train(config, pretrained_params=pretrained)
         """
+        if os.path.isdir(path):
+            path = os.path.join(path, "result.pickle.npy")
         result = jnp.load(path, allow_pickle=True).item()
         return jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=dtype), result["params"])
 
