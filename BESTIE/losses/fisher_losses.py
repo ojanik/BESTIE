@@ -54,7 +54,7 @@ def fisher_loss(mu,ssq,grad_hist,**kwargs):
     B = fish[:k, k:]
     C = fish[k:, k:]
     S = A - B @ jnp.linalg.solve(C, B.T)
-    return opti(S, weight_norm)
+    return opti(S, weight_norm=weight_norm)
 
 def calc_cov(fisher, reg=1e-3):
     fisher_reg = fisher + reg * jnp.eye(fisher.shape[0])
