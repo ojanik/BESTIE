@@ -17,6 +17,7 @@ from ..pipeline import Pipeline
 from .. import utilities, nets
 from ..data import Dataset
 from ..nets.train_state import MultiNetworkTrainState
+from ..utilities import rearrange_matrix
 
 
 def has_nan(pytree):
@@ -148,6 +149,70 @@ class Train(Pipeline):
                 "standard_hist_baseline": None,
             }
 
+    def _get_opti_fn(self):
+        """Return (opti_fn, extra_kwargs) matching the configured optimality."""
+        lconfig = self.config["loss"]
+        optimality = lconfig["optimality"].lower()
+
+        if optimality in ["a", "a_optimality", "aoptimality"]:
+            from ..losses.fisher_losses import A_optimality
+            opti = A_optimality
+        elif optimality in ["c", "c_optimality", "coptimality", "correlation"]:
+            from ..losses.fisher_losses import C_optimality
+            opti = C_optimality
+        elif optimality in ["d", "d_optimality", "doptimality", "ellipsoid",
+                            "uncertainty_ellipsoid", "ellipsoid_volume",
+                            "uncertainty_ellipsoid_volume"]:
+            from ..losses.fisher_losses import D_optimality
+            opti = D_optimality
+        elif optimality in ["m", "m_optimality", "moptimality", "ac"]:
+            from ..losses.fisher_losses import M_optimality
+            opti = M_optimality
+        else:
+            raise NotImplementedError(f"Optimality '{optimality}' not implemented")
+
+        kwargs = {
+            "weight_norm": lconfig.get("weight_norm", None),
+        }
+        # M_optimality also accepts alpha/beta
+        if "alpha" in lconfig:
+            kwargs["alpha"] = lconfig["alpha"]
+        if "beta" in lconfig:
+            kwargs["beta"] = lconfig["beta"]
+        return opti, kwargs
+
+    def _fim_to_loss(self, fisher_information, keys):
+        """Apply Schur complement and call the configured opti function.
+
+        Returns:
+            sigmas_dict  – {param: sigma} from the *full* FIM diagonal (all params)
+            loss_value   – scalar float from the configured optimality on the
+                           Schur complement (marginalises nuisance parameters)
+        """
+        opti, opti_kwargs = self._get_opti_fn()
+        signal_params = self.config["loss"].get("parameters_to_optimize", keys)
+        fim_reg = self.config["training"].get("fim_regularization", 0.0)
+
+        fish = fisher_information + fim_reg * jnp.eye(len(keys))
+        cov = jnp.linalg.inv(fish)
+        sigmas_dict = {keys[i]: float(jnp.sqrt(jnp.diag(cov)[i])) for i in range(len(keys))}
+
+        signal_idx = [keys.index(p) for p in signal_params if p in keys]
+        fish_rearranged = rearrange_matrix(fish, signal_idx)
+
+        k = len(signal_idx)
+        if k == len(keys):
+            # All parameters are signal — no nuisance to marginalise
+            S = fish_rearranged
+        else:
+            A = fish_rearranged[:k, :k]
+            B = fish_rearranged[:k, k:]
+            C = fish_rearranged[k:, k:]
+            S = A - B @ jnp.linalg.inv(C) @ B.T
+
+        loss_value = float(opti(S, **opti_kwargs))
+        return sigmas_dict, loss_value
+
     def _compute_standard_hist_baseline(self):
         """Compute FIM once using the standard (fixed) histogram defined in the config.
 
@@ -192,11 +257,9 @@ class Train(Pipeline):
             values = jnp.array(list(grad_hist.values()))
             keys = list(grad_hist.keys())
             fim = jnp.einsum('ib,jb->ij', values, values)
-            fim_reg = self.config["training"].get("fim_regularization", 0.0)
-            cov = jnp.linalg.inv(fim + fim_reg * jnp.eye(len(keys)))
-            baselines[dkey] = {keys[i]: float(jnp.sqrt(jnp.diag(cov)[i]))
-                               for i in range(len(keys))}
-            print(f"Standard hist baseline ({dkey}): {baselines[dkey]}")
+            sigmas_dict, loss_value = self._fim_to_loss(fim, keys)
+            baselines[dkey] = {"sigmas": sigmas_dict, "loss": loss_value}
+            print(f"Standard hist baseline ({dkey}): sigmas={sigmas_dict}, loss={loss_value:.6f}")
 
         self.result_dict["standard_hist_baseline"] = baselines
 
@@ -320,29 +383,23 @@ class Train(Pipeline):
             values = jnp.array(list(grad_hist.values()))
             keys = list(grad_hist.keys())
             fisher_information = jnp.einsum('ib,jb->ij', values, values)
-            fim_reg = self.config["training"].get("fim_regularization", 0.0)
-            fisher_reg = fisher_information + fim_reg * jnp.eye(len(keys))
-            cov = jnp.linalg.inv(fisher_reg)
-            val_loss = {keys[i]: jnp.sqrt(jnp.diag(cov)[i]) for i in range(len(keys))}
 
-            signal_params = self.config["loss"].get("parameters_to_optimize", keys)
-            val_loss_value = sum(float(val_loss[k]) for k in signal_params if k in val_loss)
+            val_sigmas, val_loss_value = self._fim_to_loss(fisher_information, keys)
 
-            print(f"Val sigma:   {val_loss}")
-            print(f"Val loss (A-opt, signal params): {val_loss_value:.6f}")
+            print(f"Val sigma:   {val_sigmas}")
+            print(f"Val loss: {val_loss_value:.6f}")
 
             baseline = (self.result_dict["standard_hist_baseline"] or {}).get(dkey)
             if baseline:
-                std_loss_value = sum(baseline[k] for k in signal_params if k in baseline)
-                improvement = {k: baseline[k] / float(val_loss[k])
-                               for k in signal_params if k in baseline and k in val_loss}
-                print(f"Std  loss (A-opt, signal params): {std_loss_value:.6f}")
+                improvement = {k: baseline["sigmas"][k] / val_sigmas[k]
+                               for k in val_sigmas if k in baseline["sigmas"]}
+                print(f"Std  loss: {baseline['loss']:.6f}")
                 print(f"Improvement over standard hist:   {improvement}")
-            self.result_dict["val_loss"].append(val_loss)
+            self.result_dict["val_loss"].append(val_sigmas)
 
-            tracked_key = best_val_key if best_val_key in val_loss else next(iter(val_loss))
-            if val_loss[tracked_key] < self.result_dict["best_val_loss"]:
-                self.result_dict["best_val_loss"] = val_loss[tracked_key]
+            tracked_key = best_val_key if best_val_key in val_sigmas else next(iter(val_sigmas))
+            if val_sigmas[tracked_key] < self.result_dict["best_val_loss"]:
+                self.result_dict["best_val_loss"] = val_sigmas[tracked_key]
                 self.result_dict["best_params"] = self.state.params
 
         for dkey in self.data_datasets:
