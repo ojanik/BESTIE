@@ -27,17 +27,15 @@ def fisher_loss(mu,ssq,grad_hist,**kwargs):
     keys = list(information.keys())
 
     if softmasking:
-        # Soft mask: 1.0 for good bins, ~0.0 for noisy ones
+        # Soft mask: 1.0 for well-populated bins, ~0.0 for noisy ones.
         rel_unc = jnp.sqrt(ssq + eps**2) / (mu + eps)
         soft_mask = 1.0 - jax.nn.sigmoid((rel_unc - threshold) * sharpness)
-        # Fold sqrt(mask) into values so the outer product applies the mask once:
-        # einsum('ib,jb->ij') gives sum_b v_i(b)*v_j(b), and with sqrt(mask) folded
-        # in we get sum_b v_i(b) * mask(b) * v_j(b) as desired.
-        values = values * jnp.sqrt(soft_mask)[None, :]
-
-    # Outer product over parameters, summed over bins — avoids materialising
-    # the full (n_params, n_params, n_bins) intermediate tensor.
-    fisher_information = jnp.einsum('ib,jb->ij', values, values)
+        # Fold the mask directly into the einsum to get sum_b v_i(b)*mask(b)*v_j(b).
+        # Avoids jnp.sqrt(mask) whose gradient 1/(2√mask) diverges when mask≈0,
+        # which caused NaN gradients when most bins are masked early in training.
+        fisher_information = jnp.einsum('ib,b,jb->ij', values, soft_mask, values)
+    else:
+        fisher_information = jnp.einsum('ib,jb->ij', values, values)
 
     signal_idx = [keys.index(p) for p in parameters_to_optimize]
     fish = rearrange_matrix(fisher_information, signal_idx)
