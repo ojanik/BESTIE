@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import numpy as onp
 import pandas as pd
 import jax
 from jax import random
@@ -25,6 +26,8 @@ class Dataset():
         dframe_path = config["datasets"][dkey]["dataframe"]
         df = pd.read_parquet(dframe_path)
         self.input_data, self.mask = create_input_data(df, self.hconfig)
+        _std_raw = (self._extract_standard_hist_data(df, hconfig["standard_hist"])
+                    if "standard_hist" in hconfig else None)
         self.num_features = self.input_data.shape[1]
         
         # MC only vars
@@ -58,11 +61,13 @@ class Dataset():
         total_nan_mask = input_nan_mask | weights_nan_mask | grad_nan_mask
         valid_mask = ~total_nan_mask
 
-        self.input_data = self.input_data[valid_mask&self.mask]
-        self.weights = self.weights[valid_mask&self.mask]
+        combined_mask = valid_mask & self.mask
+        self.input_data = self.input_data[combined_mask]
+        self.weights = self.weights[combined_mask]
+        self.standard_hist_data = Array(_std_raw[combined_mask]) if _std_raw is not None else None
 
         self.sample_weights = self.calc_sample_weights(self.input_data)
-        self.mask = valid_mask&self.mask
+        self.mask = combined_mask
         for k in self.grad_weights:
             self.grad_weights[k] = self.grad_weights[k][valid_mask&self.mask]
         # Sort keys alphabetically as jax' tree operations will do it later anyway
@@ -71,6 +76,25 @@ class Dataset():
         print("number of nans removed: ",jnp.sum(total_nan_mask))
         print(f"number of events left: {len(self.input_data)},{self.mask.sum()}")
         self.len_input = len(self.input_data)
+
+    @staticmethod
+    def _extract_standard_hist_data(df, std_config):
+        """Extract and scale variables for the standard histogram.
+
+        Applies the same scaling as the main pipeline (log, cos, etc.) but
+        skips the sphere normalisation so the values stay in physical units.
+        The dataset mask is applied by the caller.
+        """
+        cols = []
+        for var in std_config["vars"]:
+            d = onp.array(df[var["var_name"]], dtype=onp.float64)
+            if "scale" in var:
+                try:
+                    d = getattr(onp, var["scale"])(d)
+                except AttributeError:
+                    pass
+            cols.append(d)
+        return onp.stack(cols, axis=1)
 
     @staticmethod
     def rerng(rng):

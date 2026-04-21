@@ -43,6 +43,7 @@ class Train(Pipeline):
             self.rng = self.rerng(self.rng)
             self.train_epoch = self.build_train_step(training=True)
             self.set_result_dict()
+            self._compute_standard_hist_baseline()
             self.save_results()
             self.save_config()
 
@@ -144,7 +145,60 @@ class Train(Pipeline):
                 "data_hists": [],
                 "best_val_loss": jnp.inf,
                 "best_params": None,
+                "standard_hist_baseline": None,
             }
+
+    def _compute_standard_hist_baseline(self):
+        """Compute FIM once using the standard (fixed) histogram defined in the config.
+
+        Called once at init. Stores per-dataset results in
+        result_dict["standard_hist_baseline"] so validate() can report
+        improvement ratios throughout training.
+        """
+        baselines = {}
+        for dkey in self.datasets:
+            hkey = self.hist_map[dkey]
+            D = self.datasets[dkey]["Dataset"]
+            if D.standard_hist_data is None:
+                continue
+
+            std_config = self.config["hists"][hkey]["standard_hist"]
+            default_bins = std_config.get("bins_per_dim", 20)
+
+            bins_nd = []
+            for i, var in enumerate(std_config["vars"]):
+                # Per-variable "bins" takes priority, then bins_per_dim list/scalar
+                if "bins" in var:
+                    n = var["bins"]
+                elif isinstance(default_bins, list):
+                    n = default_bins[i]
+                else:
+                    n = default_bins
+                bins_nd.append(jnp.linspace(var["range"][0], var["range"][1], n + 1))
+
+            split_correction = D.input_data.shape[0] / (D.input_data.shape[0] - D.max_idx)
+            std_data = D.standard_hist_data[D.max_idx:]
+            weights = D.weights[D.max_idx:] * split_correction
+            grad_weights = {k: split_correction * v[D.max_idx:] for k, v in D.grad_weights.items()}
+
+            mu, _ = jnp.histogramdd(std_data, bins=bins_nd, weights=jnp.array(weights))
+            mu = mu.flatten()
+
+            grad_hist = {}
+            for k, gw in grad_weights.items():
+                g, _ = jnp.histogramdd(std_data, bins=bins_nd, weights=jnp.array(gw))
+                grad_hist[k] = g.flatten() / jnp.sqrt(mu + 1e-8)
+
+            values = jnp.array(list(grad_hist.values()))
+            keys = list(grad_hist.keys())
+            fim = jnp.einsum('ib,jb->ij', values, values)
+            fim_reg = self.config["training"].get("fim_regularization", 0.0)
+            cov = jnp.linalg.inv(fim + fim_reg * jnp.eye(len(keys)))
+            baselines[dkey] = {keys[i]: float(jnp.sqrt(jnp.diag(cov)[i]))
+                               for i in range(len(keys))}
+            print(f"Standard hist baseline ({dkey}): {baselines[dkey]}")
+
+        self.result_dict["standard_hist_baseline"] = baselines
 
     def get_sample_dict(self, rng):
         batch = {}
@@ -270,7 +324,20 @@ class Train(Pipeline):
             fisher_reg = fisher_information + fim_reg * jnp.eye(len(keys))
             cov = jnp.linalg.inv(fisher_reg)
             val_loss = {keys[i]: jnp.sqrt(jnp.diag(cov)[i]) for i in range(len(keys))}
-            print(val_loss)
+
+            signal_params = self.config["loss"].get("parameters_to_optimize", keys)
+            val_loss_value = sum(float(val_loss[k]) for k in signal_params if k in val_loss)
+
+            print(f"Val sigma:   {val_loss}")
+            print(f"Val loss (A-opt, signal params): {val_loss_value:.6f}")
+
+            baseline = (self.result_dict["standard_hist_baseline"] or {}).get(dkey)
+            if baseline:
+                std_loss_value = sum(baseline[k] for k in signal_params if k in baseline)
+                improvement = {k: baseline[k] / float(val_loss[k])
+                               for k in signal_params if k in baseline and k in val_loss}
+                print(f"Std  loss (A-opt, signal params): {std_loss_value:.6f}")
+                print(f"Improvement over standard hist:   {improvement}")
             self.result_dict["val_loss"].append(val_loss)
 
             tracked_key = best_val_key if best_val_key in val_loss else next(iter(val_loss))
