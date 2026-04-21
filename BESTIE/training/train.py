@@ -251,24 +251,24 @@ class Train(Pipeline):
                 self.config["hists"][hkey]["hists"]["bins_up"],
                 self.config["hists"][hkey]["hists"]["bins_number"] + 1,
             )
-            lss1, lss2 = lss_arr[:, 0], lss_arr[:, 1]
-            mu, _, _ = jnp.histogram2d(lss1, lss2, bins=[bins_lss, bins_lss],
-                                       weights=jnp.array(weights))
+            n_lss = lss_arr.shape[1]
+            bins_nd = [bins_lss] * n_lss
+            mu, _ = jnp.histogramdd(lss_arr, bins=bins_nd, weights=jnp.array(weights))
             self.result_dict["mc_hists"].append(mu)
             mu = mu.flatten()
 
             grad_hist = {}
             for k, gw in grad_weights.items():
                 gw = jnp.array(gw)[D.max_idx:]
-                g, _, _ = jnp.histogram2d(lss1, lss2, bins=[bins_lss, bins_lss], weights=gw)
+                g, _ = jnp.histogramdd(lss_arr, bins=bins_nd, weights=gw)
                 grad_hist[k] = g.flatten() / jnp.sqrt(mu + 1e-8)
 
             values = jnp.array(list(grad_hist.values()))
             keys = list(grad_hist.keys())
             fisher_information = jnp.einsum('ib,jb->ij', values, values)
-            fim_reg = self.config["training"].get("fim_regularization", 1e-3)
+            fim_reg = self.config["training"].get("fim_regularization", 0.0)
             fisher_reg = fisher_information + fim_reg * jnp.eye(len(keys))
-            cov = jnp.linalg.solve(fisher_reg, jnp.eye(len(keys)))
+            cov = jnp.linalg.inv(fisher_reg)
             val_loss = {keys[i]: jnp.sqrt(jnp.diag(cov)[i]) for i in range(len(keys))}
             print(val_loss)
             self.result_dict["val_loss"].append(val_loss)
@@ -289,9 +289,9 @@ class Train(Pipeline):
                 self.config["hists"][hkey]["hists"]["bins_up"],
                 self.config["hists"][hkey]["hists"]["bins_number"] + 1,
             )
-            lss1, lss2 = lss_arr[:, 0], lss_arr[:, 1]
-            mu, _, _ = jnp.histogram2d(lss1, lss2, bins=[bins_lss, bins_lss],
-                                       weights=jnp.array(D.weights))
+            n_lss = lss_arr.shape[1]
+            mu, _ = jnp.histogramdd(lss_arr, bins=[bins_lss] * n_lss,
+                                    weights=jnp.array(D.weights))
             self.result_dict["data_hists"].append(mu)
 
         return 0
