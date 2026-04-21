@@ -27,7 +27,7 @@ def has_nan(pytree):
 
 
 class Train(Pipeline):
-    def __init__(self, config, name="unnamed", init_and_save=True):
+    def __init__(self, config, name="unnamed", init_and_save=True, pretrained_params=None):
         Pipeline.__init__(self, config)
 
         self.config = config
@@ -39,7 +39,7 @@ class Train(Pipeline):
         print(f"Num features: {self.num_features}")
 
         if init_and_save:
-            self.initialize_network(self.rng)
+            self.initialize_network(self.rng, pretrained_params=pretrained_params)
             self.rng = self.rerng(self.rng)
             self.train_epoch = self.build_train_step(training=True)
             self.set_result_dict()
@@ -77,12 +77,26 @@ class Train(Pipeline):
         rng, _ = random.split(rng)
         return rng
 
-    def initialize_network(self, rng):
+    @staticmethod
+    def load_checkpoint_params(path, dtype=jnp.float32):
+        """Load params from a result.pickle checkpoint and cast to dtype.
+
+        Typical use: warm-starting a float32 run from a float64 checkpoint.
+            pretrained = Train.load_checkpoint_params("/path/to/result.pickle")
+            trainer = Train(config, pretrained_params=pretrained)
+        """
+        result = jnp.load(path, allow_pickle=True).item()
+        return jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=dtype), result["params"])
+
+    def initialize_network(self, rng, pretrained_params=None):
         param_dict = {}
         apply_dict = {}
         for hkey in self.net_dict:
-            init_params = self.net_dict[hkey]["net"].init(rng, jnp.ones(self.num_features[hkey]))
-            param_dict[hkey] = init_params
+            if pretrained_params is not None:
+                param_dict[hkey] = pretrained_params[hkey]
+            else:
+                init_params = self.net_dict[hkey]["net"].init(rng, jnp.ones(self.num_features[hkey]))
+                param_dict[hkey] = init_params
             apply_dict[hkey] = self.net_dict[hkey]["net"].apply
 
         update_steps_per_epoch = (
