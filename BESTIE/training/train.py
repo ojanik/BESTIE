@@ -142,6 +142,7 @@ class Train(Pipeline):
                 "learning_rate_epochs": [],
                 "ffm": None,
                 "val_loss": [],
+                "val_loss_scalar": [],
                 "mc_hists": [],
                 "data_hists": [],
                 "best_val_loss": jnp.inf,
@@ -344,6 +345,7 @@ class Train(Pipeline):
             print("Val diag: ", val_diag)
         else:
             self.result_dict["val_loss"].append(jnp.nan)
+            self.result_dict["val_loss_scalar"].append(float("nan"))
             print(f"Loss: {loss}")
 
     def _batched_inference(self, data, dkey, start=0, bs=100_000, max_batches=None):
@@ -411,6 +413,7 @@ class Train(Pipeline):
             if unbinned:
                 print(f"Unbinned loss: {unbinned['loss']:.6f}  sigmas={unbinned['sigmas']}")
             self.result_dict["val_loss"].append(val_sigmas)
+            self.result_dict["val_loss_scalar"].append(float(val_loss_value))
 
             tracked_key = best_val_key if best_val_key in val_sigmas else next(iter(val_sigmas))
             if val_sigmas[tracked_key] < self.result_dict["best_val_loss"]:
