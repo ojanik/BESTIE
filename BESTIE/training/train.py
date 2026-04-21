@@ -147,6 +147,7 @@ class Train(Pipeline):
                 "best_val_loss": jnp.inf,
                 "best_params": None,
                 "standard_hist_baseline": None,
+                "unbinned_baseline": None,
             }
 
     def _get_opti_fn(self):
@@ -214,16 +215,30 @@ class Train(Pipeline):
         return sigmas_dict, loss_value
 
     def _compute_standard_hist_baseline(self):
-        """Compute FIM once using the standard (fixed) histogram defined in the config.
+        """Compute reference FIMs once at init using the full dataset.
 
-        Called once at init. Stores per-dataset results in
-        result_dict["standard_hist_baseline"] so validate() can report
-        improvement ratios throughout training.
+        Three baselines are stored per dataset in result_dict:
+          - "standard_hist_baseline": FIM from the fixed histogram defined in config.
+          - "unbinned_baseline":      FIM from treating every event as its own bin
+                                      (theoretical maximum for any histogram).
         """
-        baselines = {}
+        std_baselines = {}
+        unbinned_baselines = {}
+
         for dkey in self.datasets:
             hkey = self.hist_map[dkey]
             D = self.datasets[dkey]["Dataset"]
+
+            keys = sorted(D.grad_weights.keys())
+            grad_matrix = jnp.stack([D.grad_weights[k] for k in keys], axis=1)  # (N, P)
+
+            # --- Unbinned FIM (theoretical maximum) ---
+            fim_unbinned = (grad_matrix / D.weights[:, None]).T @ grad_matrix
+            sigmas_u, loss_u = self._fim_to_loss(fim_unbinned, keys)
+            unbinned_baselines[dkey] = {"sigmas": sigmas_u, "loss": loss_u}
+            print(f"Unbinned baseline      ({dkey}): sigmas={sigmas_u}, loss={loss_u:.6f}")
+
+            # --- Standard histogram FIM ---
             if D.standard_hist_data is None:
                 continue
 
@@ -232,7 +247,6 @@ class Train(Pipeline):
 
             bins_nd = []
             for i, var in enumerate(std_config["vars"]):
-                # Per-variable "bins" takes priority, then bins_per_dim list/scalar
                 if "bins" in var:
                     n = var["bins"]
                 elif isinstance(default_bins, list):
@@ -241,27 +255,25 @@ class Train(Pipeline):
                     n = default_bins
                 bins_nd.append(jnp.linspace(var["range"][0], var["range"][1], n + 1))
 
-            split_correction = D.input_data.shape[0] / (D.input_data.shape[0] - D.max_idx)
-            std_data = D.standard_hist_data[D.max_idx:]
-            weights = D.weights[D.max_idx:] * split_correction
-            grad_weights = {k: split_correction * v[D.max_idx:] for k, v in D.grad_weights.items()}
-
-            mu, _ = jnp.histogramdd(std_data, bins=bins_nd, weights=jnp.array(weights))
+            mu, _ = jnp.histogramdd(D.standard_hist_data, bins=bins_nd,
+                                    weights=jnp.array(D.weights))
             mu = mu.flatten()
 
             grad_hist = {}
-            for k, gw in grad_weights.items():
-                g, _ = jnp.histogramdd(std_data, bins=bins_nd, weights=jnp.array(gw))
+            for k in keys:
+                g, _ = jnp.histogramdd(D.standard_hist_data, bins=bins_nd,
+                                       weights=jnp.array(D.grad_weights[k]))
                 grad_hist[k] = g.flatten() / jnp.sqrt(mu + 1e-8)
 
-            values = jnp.array(list(grad_hist.values()))
-            keys = list(grad_hist.keys())
-            fim = jnp.einsum('ib,jb->ij', values, values)
-            sigmas_dict, loss_value = self._fim_to_loss(fim, keys)
-            baselines[dkey] = {"sigmas": sigmas_dict, "loss": loss_value}
-            print(f"Standard hist baseline ({dkey}): sigmas={sigmas_dict}, loss={loss_value:.6f}")
+            fim_std = jnp.einsum('ib,jb->ij',
+                                 jnp.array(list(grad_hist.values())),
+                                 jnp.array(list(grad_hist.values())))
+            sigmas_s, loss_s = self._fim_to_loss(fim_std, keys)
+            std_baselines[dkey] = {"sigmas": sigmas_s, "loss": loss_s}
+            print(f"Standard hist baseline ({dkey}): sigmas={sigmas_s}, loss={loss_s:.6f}")
 
-        self.result_dict["standard_hist_baseline"] = baselines
+        self.result_dict["standard_hist_baseline"] = std_baselines
+        self.result_dict["unbinned_baseline"] = unbinned_baselines
 
     def get_sample_dict(self, rng):
         batch = {}
@@ -386,15 +398,18 @@ class Train(Pipeline):
 
             val_sigmas, val_loss_value = self._fim_to_loss(fisher_information, keys)
 
-            print(f"Val sigma:   {val_sigmas}")
-            print(f"Val loss: {val_loss_value:.6f}")
+            print(f"Val loss:      {val_loss_value:.6f}  sigmas={val_sigmas}")
 
-            baseline = (self.result_dict["standard_hist_baseline"] or {}).get(dkey)
-            if baseline:
-                improvement = {k: baseline["sigmas"][k] / val_sigmas[k]
-                               for k in val_sigmas if k in baseline["sigmas"]}
-                print(f"Std  loss: {baseline['loss']:.6f}")
-                print(f"Improvement over standard hist:   {improvement}")
+            std_baseline = (self.result_dict["standard_hist_baseline"] or {}).get(dkey)
+            if std_baseline:
+                improvement = {k: std_baseline["sigmas"][k] / val_sigmas[k]
+                               for k in val_sigmas if k in std_baseline["sigmas"]}
+                print(f"Std  loss:     {std_baseline['loss']:.6f}  sigmas={std_baseline['sigmas']}")
+                print(f"Improvement over standard hist: {improvement}")
+
+            unbinned = (self.result_dict["unbinned_baseline"] or {}).get(dkey)
+            if unbinned:
+                print(f"Unbinned loss: {unbinned['loss']:.6f}  sigmas={unbinned['sigmas']}")
             self.result_dict["val_loss"].append(val_sigmas)
 
             tracked_key = best_val_key if best_val_key in val_sigmas else next(iter(val_sigmas))
