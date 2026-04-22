@@ -143,6 +143,7 @@ class Train(Pipeline):
                 "ffm": None,
                 "val_loss": [],
                 "val_loss_scalar": [],
+                "train_val_loss_scalar": [],
                 "mc_hists": [],
                 "data_hists": [],
                 "best_val_loss": jnp.inf,
@@ -346,6 +347,7 @@ class Train(Pipeline):
         else:
             self.result_dict["val_loss"].append(jnp.nan)
             self.result_dict["val_loss_scalar"].append(float("nan"))
+            self.result_dict["train_val_loss_scalar"].append(float("nan"))
             print(f"Loss: {loss}")
 
     def _batched_inference(self, data, dkey, start=0, bs=100_000, max_batches=None):
@@ -363,6 +365,28 @@ class Train(Pipeline):
             lss_arr.append(lss)
         return jnp.concatenate(lss_arr, axis=0)
 
+    def _compute_hard_fim(self, lss_arr, weights, grad_weights, hkey):
+        """Compute FIM from a hard histogramdd on the given LSS array."""
+        bins_lss = jnp.linspace(
+            self.config["hists"][hkey]["hists"]["bins_low"],
+            self.config["hists"][hkey]["hists"]["bins_up"],
+            self.config["hists"][hkey]["hists"]["bins_number"] + 1,
+        )
+        bins_nd = [bins_lss] * lss_arr.shape[1]
+
+        mu, _ = jnp.histogramdd(lss_arr, bins=bins_nd, weights=jnp.array(weights))
+        mu = mu.flatten()
+
+        grad_hist = {}
+        for k, gw in grad_weights.items():
+            g, _ = jnp.histogramdd(lss_arr, bins=bins_nd, weights=jnp.array(gw))
+            grad_hist[k] = g.flatten() / jnp.sqrt(mu + 1e-8)
+
+        keys = list(grad_hist.keys())
+        values = jnp.array(list(grad_hist.values()))
+        fim = jnp.einsum('ib,jb->ij', values, values)
+        return fim, keys, mu
+
     def validate(self):
         bs = 100_000
         best_val_key = self.config["training"].get("best_val_key", None)
@@ -370,50 +394,51 @@ class Train(Pipeline):
         for dkey in self.datasets:
             hkey = self.hist_map[dkey]
             D = self.datasets[dkey]["Dataset"]
+            N = D.input_data.shape[0]
 
-            lss_arr = self._batched_inference(D.input_data, dkey, start=D.max_idx, bs=bs)
+            # --- Validation split ---
+            lss_val = self._batched_inference(D.input_data, dkey, start=D.max_idx, bs=bs)
+            val_correction = N / (N - D.max_idx)
+            val_weights = D.weights[D.max_idx:] * val_correction
+            val_grad_weights = {k: v[D.max_idx:] * val_correction
+                                for k, v in D.grad_weights.items()}
 
-            split_correction_factor = D.input_data.shape[0] / (D.input_data.shape[0] - D.max_idx)
-            weights = D.weights[D.max_idx:] * split_correction_factor
-            grad_weights = {k: split_correction_factor * v for k, v in D.grad_weights.items()}
+            fim_val, keys, mu_val = self._compute_hard_fim(
+                lss_val, val_weights, val_grad_weights, hkey)
+            self.result_dict["mc_hists"].append(mu_val.reshape(
+                [self.config["hists"][hkey]["hists"]["bins_number"]] * lss_val.shape[1]))
+            val_sigmas, val_loss_value = self._fim_to_loss(fim_val, keys)
 
-            bins_lss = jnp.linspace(
-                self.config["hists"][hkey]["hists"]["bins_low"],
-                self.config["hists"][hkey]["hists"]["bins_up"],
-                self.config["hists"][hkey]["hists"]["bins_number"] + 1,
-            )
-            n_lss = lss_arr.shape[1]
-            bins_nd = [bins_lss] * n_lss
-            mu, _ = jnp.histogramdd(lss_arr, bins=bins_nd, weights=jnp.array(weights))
-            self.result_dict["mc_hists"].append(mu)
-            mu = mu.flatten()
+            # --- Training split ---
+            lss_train = self._batched_inference(D.input_data, dkey, start=0,
+                                                bs=bs, max_batches=None)
+            lss_train = lss_train[:D.max_idx]
+            train_correction = N / D.max_idx
+            train_weights = D.weights[:D.max_idx] * train_correction
+            train_grad_weights = {k: v[:D.max_idx] * train_correction
+                                  for k, v in D.grad_weights.items()}
 
-            grad_hist = {}
-            for k, gw in grad_weights.items():
-                gw = jnp.array(gw)[D.max_idx:]
-                g, _ = jnp.histogramdd(lss_arr, bins=bins_nd, weights=gw)
-                grad_hist[k] = g.flatten() / jnp.sqrt(mu + 1e-8)
+            fim_train, _, _ = self._compute_hard_fim(
+                lss_train, train_weights, train_grad_weights, hkey)
+            train_sigmas, train_loss_value = self._fim_to_loss(fim_train, keys)
 
-            values = jnp.array(list(grad_hist.values()))
-            keys = list(grad_hist.keys())
-            fisher_information = jnp.einsum('ib,jb->ij', values, values)
-
-            val_sigmas, val_loss_value = self._fim_to_loss(fisher_information, keys)
-
-            print(f"Val loss:      {val_loss_value:.6f}  sigmas={val_sigmas}")
+            print(f"Val   loss (hard): {val_loss_value:.6f}  sigmas={val_sigmas}")
+            print(f"Train loss (hard): {train_loss_value:.6f}  sigmas={train_sigmas}")
 
             std_baseline = (self.result_dict["standard_hist_baseline"] or {}).get(dkey)
             if std_baseline:
                 improvement = {k: std_baseline["sigmas"][k] / val_sigmas[k]
                                for k in val_sigmas if k in std_baseline["sigmas"]}
-                print(f"Std  loss:     {std_baseline['loss']:.6f}  sigmas={std_baseline['sigmas']}")
+                print(f"Std  loss:         {std_baseline['loss']:.6f}  sigmas={std_baseline['sigmas']}")
                 print(f"Improvement over standard hist: {improvement}")
 
             unbinned = (self.result_dict["unbinned_baseline"] or {}).get(dkey)
             if unbinned:
-                print(f"Unbinned loss: {unbinned['loss']:.6f}  sigmas={unbinned['sigmas']}")
+                print(f"Unbinned loss:     {unbinned['loss']:.6f}  sigmas={unbinned['sigmas']}")
+
             self.result_dict["val_loss"].append(val_sigmas)
             self.result_dict["val_loss_scalar"].append(float(val_loss_value))
+            self.result_dict["train_val_loss_scalar"].append(float(train_loss_value))
 
             tracked_key = best_val_key if best_val_key in val_sigmas else next(iter(val_sigmas))
             if val_sigmas[tracked_key] < self.result_dict["best_val_loss"]:
