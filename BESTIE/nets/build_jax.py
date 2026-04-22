@@ -110,20 +110,46 @@ def build_jax_dense(config):
                 )
 
                 inp = jnp.concatenate([x, enc], axis=-1) if concat_raw else enc
-                x = shared_net(inp, training=training)
+                h = shared_net(inp, training=training)
 
             else:
-                x = SubNet(hidden_layers=config["hidden_layers"])(x, training=training)
+                h = SubNet(hidden_layers=config["hidden_layers"])(x, training=training)
 
-            # Optional projection head
+            # --- Main LSS head -----------------------------------------------
+            # Optional projection head. When absent, the raw backbone output is
+            # used as the LSS, exactly like before.
             proj_size = config.get("projection") or config.get("projection_size")
             if proj_size is not None:
-                x = nn.Dense(proj_size, name="projection")(x)
+                lss = nn.Dense(proj_size, name="projection")(h)
                 proj_act = config.get("projection_activation", None)
                 if proj_act:
-                    x = getattr(uti, proj_act)(x)
+                    lss = getattr(uti, proj_act)(lss)
+            else:
+                lss = h
 
-            return x
+            # --- Optional auxiliary score head -------------------------------
+            # Opt-in via config["score_head"]. Shares the backbone `h` with the
+            # LSS head and regresses a per-event score vector of dimension
+            # n_params (one entry per parameter the aux loss supervises).
+            # Returning a dict is the signal that the score head is active;
+            # when absent we return just the LSS tensor so the rest of the
+            # pipeline, evaluation, and checkpoints remain byte-equivalent
+            # to pre-score-head behavior.
+            sh_cfg = config.get("score_head", None)
+            if sh_cfg is not None and sh_cfg.get("enabled", False):
+                n_params = sh_cfg["n_params"]
+                hidden = sh_cfg.get("hidden", []) or []
+                act_name = sh_cfg.get("activation", "silu")
+                act_fn = getattr(uti, act_name, None) or getattr(nn, act_name, nn.silu)
+
+                s = h
+                for i, hs in enumerate(hidden):
+                    s = nn.Dense(hs, name=f"score_hidden_{i}")(s)
+                    s = act_fn(s)
+                score = nn.Dense(n_params, name="score_out")(s)
+                return {"lss": lss, "score": score}
+
+            return lss
 
     return Model
 

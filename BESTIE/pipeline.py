@@ -12,6 +12,12 @@ class Pipeline:
     def __init__(self, config):
         self.config = config
 
+        # Parse the optional auxiliary score-regression head config. This MUST
+        # run before `model_handler` is called, because it injects a
+        # `score_head` sub-dict into each per-hist network config so the built
+        # Flax module knows to instantiate the extra head and its parameters.
+        self._init_score_head(config)
+
         self.calc_hist = hist_handler(self.config)
         self.transform_fun = transformation_handler(self.config["transformation"])
         self.model_dict = model_handler(self.config)
@@ -30,17 +36,76 @@ class Pipeline:
 
         self._set_optimization_pipeline(hist_map=self.hist_map)
 
-    def calc_lss(self,net_params,data,hist_map,name,training,drop_out_key):
-        hkey = hist_map[name]
+    def _init_score_head(self, config):
+        """Read loss.score_head and (if enabled) inject n_params into each
+        per-hist network config so the built model adds the auxiliary head.
 
-        lss = self.net_dict[hkey]["net"].apply(
+        Defaults preserve the previous behavior exactly: when `loss.score_head`
+        is absent or `enabled` is False, no network or loss path changes.
+        """
+        sh_cfg = (config.get("loss", {}) or {}).get("score_head", {}) or {}
+        self.score_head_enabled = bool(sh_cfg.get("enabled", False))
+
+        if not self.score_head_enabled:
+            self.score_params = []
+            self.score_weight = 0.0
+            self.score_eps = 1e-8
+            return
+
+        params = sh_cfg.get("parameters")
+        if not params:
+            raise ValueError(
+                "loss.score_head.enabled=True requires loss.score_head.parameters "
+                "to be a non-empty list of parameter names (matching keys in the "
+                "dataset's grad_weights)."
+            )
+        # Sort to match Dataset.grad_weights ordering (alphabetical, see
+        # dataset.py). This guarantees a stable column order in the score
+        # target tensor.
+        self.score_params = sorted(params)
+        self.score_weight = float(sh_cfg.get("weight", 1.0))
+        self.score_eps = float(sh_cfg.get("eps", 1e-8))
+
+        n_params = len(self.score_params)
+        hidden = sh_cfg.get("hidden", []) or []
+        activation = sh_cfg.get("activation", "silu")
+
+        # Inject into every hist's network config so build_jax_dense picks it
+        # up. Mutates `config` in place; the trainer already mutates `config`
+        # elsewhere (e.g. save_dir), so this is consistent with existing usage.
+        for hkey in config["hists"].keys():
+            net_cfg = config["hists"][hkey]["network"]
+            net_cfg["score_head"] = {
+                "enabled": True,
+                "n_params": n_params,
+                "hidden": hidden,
+                "activation": activation,
+            }
+
+    def _calc_net_outputs(self, net_params, data, hkey, training, drop_out_key):
+        """Single forward pass returning (lss, score_or_None).
+
+        The Flax module returns a dict {"lss", "score"} when the score head is
+        enabled and a plain LSS array otherwise; this helper normalises that
+        so callers don't have to type-check.
+        """
+        out = self.net_dict[hkey]["net"].apply(
             net_params[hkey],
             data,
             training=training,
-            rngs={"dropout": drop_out_key}
-            )
+            rngs={"dropout": drop_out_key},
+        )
+        if isinstance(out, dict):
+            lss = self.transform_fun(out["lss"])
+            score = out.get("score", None)
+        else:
+            lss = self.transform_fun(out)
+            score = None
+        return lss, score
 
-        lss = self.transform_fun(lss)
+    def calc_lss(self,net_params,data,hist_map,name,training,drop_out_key):
+        hkey = hist_map[name]
+        lss, _ = self._calc_net_outputs(net_params, data, hkey, training, drop_out_key)
         return lss
 
     def calc_lss_dict(self, net_params: dict, data_dict: dict, hist_map: dict,
@@ -134,16 +199,94 @@ class Pipeline:
         ssq = jnp.concatenate([g["ssq"] for g in grouped.values()])
         return mu, ssq, grad_hist
 
+    def _calc_lss_and_score_dict(self, net_params, data_dict, hist_map,
+                                  training=True, drop_out_key=None):
+        """Like calc_lss_dict but also returns per-dataset score predictions.
+
+        Used internally by the optimisation pipeline so that we run the
+        forward pass once and then split the outputs into the LSS path
+        (binning + Fisher loss) and the score path (auxiliary regression).
+        """
+        lss_dict = {}
+        score_dict = {}
+        for name, entry in data_dict.items():
+            hkey = hist_map[name]
+            lss, score = self._calc_net_outputs(
+                net_params, entry["data"], hkey, training, drop_out_key
+            )
+            lss_dict[name] = {
+                "lss": lss,
+                "weights": entry["weights"],
+                "sample_weights": entry["sample_weights"],
+                "grad_weights": entry["grad_weights"],
+            }
+            if score is not None:
+                score_dict[name] = score
+        return lss_dict, score_dict
+
+    def _compute_score_loss(self, score_dict, data_dict):
+        """Event-weighted MSE between the score head and grad_w / (w + eps).
+
+        Loss = sum_i w_i * ||score_pred_i - grad_w_i / (w_i + eps)||^2
+               -------------------------------------------------------
+                                  sum_i w_i
+
+        - Targets are stacked in the order given by `self.score_params`
+          (sorted alphabetically — same order Dataset uses for grad_weights).
+        - The per-event physical weight w_i is reused as the MSE weight so
+          that the loss approximates an expectation under p(x|theta), which
+          mirrors how the Fisher loss already consumes weights.
+        - sample_weights (importance-sampling correction) are folded in the
+          same way the histogram path does.
+        """
+        eps = self.score_eps
+        num = jnp.array(0.0)
+        den = jnp.array(0.0)
+        for name, score_pred in score_dict.items():
+            raw = data_dict[name]
+            w = raw["weights"]                # (B,)
+            sw = raw.get("sample_weights")    # (B,) or None
+            grad_w = raw["grad_weights"]      # dict: param -> (B,)
+
+            # Stack per-event score targets in the canonical parameter order.
+            target = jnp.stack(
+                [grad_w[p] / (w + eps) for p in self.score_params],
+                axis=-1,
+            )  # shape (B, n_params)
+
+            per_event_sq = jnp.sum((score_pred - target) ** 2, axis=-1)  # (B,)
+
+            event_w = w
+            if sw is not None:
+                event_w = event_w * jnp.reshape(sw, event_w.shape)
+
+            num = num + jnp.sum(event_w * per_event_sq)
+            den = den + jnp.sum(event_w)
+
+        return num / (den + 1e-12)
+
     def _set_optimization_pipeline(self, hist_map: dict):
         @partial(jax.jit, static_argnames=["training"])
         def optimization_pipeline(net_params, data_dict, training=True, drop_out_key=None):
-            lss_dict = self.calc_lss_dict(net_params, data_dict, hist_map,
-                                          training=training, drop_out_key=drop_out_key)
+            lss_dict, score_dict = self._calc_lss_and_score_dict(
+                net_params, data_dict, hist_map,
+                training=training, drop_out_key=drop_out_key,
+            )
             hist_names = {k: hist_map[k] for k in lss_dict}
             hist_dict = self.get_histograms(lss_dict, hist_names)
             mu, ssq, grad_hist = self._group_and_concat_hists(hist_dict, hist_names)
-            losses = self.calc_loss(mu, ssq, grad_hist)
-            return jnp.sum(losses), losses
+            fisher_losses = self.calc_loss(mu, ssq, grad_hist)
+
+            if self.score_head_enabled:
+                aux_loss = self._compute_score_loss(score_dict, data_dict)
+                total = jnp.sum(fisher_losses) + self.score_weight * aux_loss
+                # Append aux loss to the per-loss array so it is logged
+                # alongside the existing Fisher / bin losses without changing
+                # the surrounding plumbing.
+                losses = jnp.concatenate([fisher_losses, jnp.array([aux_loss])])
+                return total, losses
+
+            return jnp.sum(fisher_losses), fisher_losses
 
         self._optimization_pipeline = optimization_pipeline
 
