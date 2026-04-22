@@ -340,7 +340,15 @@ class Train(Pipeline):
     def log_metric(self, metrics, validate=False):
         loss, losses = metrics
         loss = jnp.mean(loss)
+        # Per-component loss breakdown averaged over the epoch's batches.
+        # Shape: (n_components,). With the default Fisher-only setup this is
+        # length 1 (or 2 if bin_loss is also enabled). With loss.score_head
+        # enabled, the last entry is the auxiliary score-regression loss
+        # (BEFORE the score_weight multiplier, so the raw aux value is
+        # logged independently of how it's weighted into the total).
+        losses_mean = jnp.mean(losses, axis=0)
         self.result_dict["history"].append(loss)
+        self.result_dict["losses"].append(losses_mean)
         self.result_dict["params"] = self.state.params
         if validate:
             print("Validating...")
@@ -350,7 +358,7 @@ class Train(Pipeline):
             self.result_dict["val_loss"].append(jnp.nan)
             self.result_dict["val_loss_scalar"].append(float("nan"))
             self.result_dict["train_val_loss_scalar"].append(float("nan"))
-            print(f"Loss: {loss}")
+            print(f"Loss: {loss}  components={losses_mean}")
 
     def _batched_inference(self, data, dkey, start=0, bs=100_000, max_batches=None):
         """Run inference on data[start:] in batches, return concatenated LSS array."""
