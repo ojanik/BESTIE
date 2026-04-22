@@ -110,7 +110,9 @@ class Train(Pipeline):
             else self.config["training"]["batches_per_epoch"]
         )
         lr_fn = nets.lr_handler(self.config, update_steps_per_epoch)
-        tx = getattr(optax, self.config["training"]["optimizer"].lower())(learning_rate=lr_fn)
+        optimizer_name = self.config["training"]["optimizer"].lower()
+        optimizer_kwargs = self.config["training"].get("optimizer_kwargs", {})
+        tx = getattr(optax, optimizer_name)(learning_rate=lr_fn, **optimizer_kwargs)
 
         self.rng, key = jax.random.split(self.rng)
         self.state = MultiNetworkTrainState.create(
