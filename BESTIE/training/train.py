@@ -146,6 +146,14 @@ class Train(Pipeline):
                 "val_loss": [],
                 "val_loss_scalar": [],
                 "train_val_loss_scalar": [],
+                # Combined-across-datasets validation metrics. Mirror the
+                # per-dataset entries above but aggregate via FIM addition,
+                # which is mathematically what the training loss does at the
+                # bin-concatenation step. These let you track a single
+                # convergence curve regardless of dataset count.
+                "combined_val_loss": [],
+                "combined_val_loss_scalar": [],
+                "combined_train_val_loss_scalar": [],
                 "mc_hists": [],
                 "data_hists": [],
                 "best_val_loss": jnp.inf,
@@ -239,7 +247,13 @@ class Train(Pipeline):
             # --- Unbinned FIM (theoretical maximum) ---
             fim_unbinned = (grad_matrix / D.weights[:, None]).T @ grad_matrix
             sigmas_u, loss_u = self._fim_to_loss(fim_unbinned, keys)
-            unbinned_baselines[dkey] = {"sigmas": sigmas_u, "loss": loss_u}
+            # `fim` and `keys` are kept so validate() can sum FIMs across
+            # datasets to produce a "combined" baseline that is directly
+            # comparable to the combined val/train losses.
+            unbinned_baselines[dkey] = {
+                "sigmas": sigmas_u, "loss": loss_u,
+                "fim": fim_unbinned, "keys": keys,
+            }
             print(f"Unbinned baseline      ({dkey}): sigmas={sigmas_u}, loss={loss_u:.6f}")
 
             # --- Standard histogram FIM ---
@@ -273,7 +287,10 @@ class Train(Pipeline):
                                  jnp.array(list(grad_hist.values())),
                                  jnp.array(list(grad_hist.values())))
             sigmas_s, loss_s = self._fim_to_loss(fim_std, keys)
-            std_baselines[dkey] = {"sigmas": sigmas_s, "loss": loss_s}
+            std_baselines[dkey] = {
+                "sigmas": sigmas_s, "loss": loss_s,
+                "fim": fim_std, "keys": keys,
+            }
             print(f"Standard hist baseline ({dkey}): sigmas={sigmas_s}, loss={loss_s:.6f}")
 
         self.result_dict["standard_hist_baseline"] = std_baselines
@@ -397,9 +414,120 @@ class Train(Pipeline):
         fim = jnp.einsum('ib,jb->ij', values, values)
         return fim, keys, mu
 
+    @staticmethod
+    def _format_sigma_block(label, val_sigmas, train_sigmas,
+                             val_loss_value, train_loss_value,
+                             std_baseline, unbinned):
+        """Render a single (header line + per-parameter table) block.
+
+        Used for both per-dataset and the aggregated "combined" view. Columns
+        adapt to which baselines are available. Conventions:
+          - val/std  < 1.0  → network beats standard binning (good)
+          - val/unb  >= 1.0 → unbinned is the theoretical lower bound
+        """
+        has_std = std_baseline is not None
+        has_unb = unbinned is not None
+
+        # Scalar header line (the four numbers you most often want).
+        head = [f"val={val_loss_value:.6f}", f"train={train_loss_value:.6f}"]
+        if has_std:
+            head.append(f"std={std_baseline['loss']:.6f}")
+        if has_unb:
+            head.append(f"unbinned={unbinned['loss']:.6f}")
+        lines = [f"[{label}]   " + "  ".join(head)]
+
+        # Column layout
+        cols = ["param", "val σ", "train σ"]
+        if has_std:
+            cols += ["std σ", "val/std"]
+        if has_unb:
+            cols += ["unb σ", "val/unb"]
+
+        name_w = max(12, max((len(k) for k in val_sigmas), default=12))
+        num_w = 11
+
+        header = f"  {cols[0]:<{name_w}}" + "".join(f"  {c:>{num_w}}" for c in cols[1:])
+        lines.append(header)
+        lines.append("  " + "-" * (name_w + (num_w + 2) * (len(cols) - 1)))
+
+        for k in sorted(val_sigmas.keys()):
+            row = [f"  {k:<{name_w}}",
+                   f"  {val_sigmas[k]:>{num_w}.4g}",
+                   f"  {train_sigmas[k]:>{num_w}.4g}"]
+            if has_std:
+                if k in std_baseline['sigmas']:
+                    s = std_baseline['sigmas'][k]
+                    row += [f"  {s:>{num_w}.4g}",
+                            f"  {val_sigmas[k] / s:>{num_w - 1}.3f}x"]
+                else:
+                    row += [f"  {'n/a':>{num_w}}", f"  {'n/a':>{num_w}}"]
+            if has_unb:
+                if k in unbinned['sigmas']:
+                    u = unbinned['sigmas'][k]
+                    row += [f"  {u:>{num_w}.4g}",
+                            f"  {val_sigmas[k] / u:>{num_w - 1}.3f}x"]
+                else:
+                    row += [f"  {'n/a':>{num_w}}", f"  {'n/a':>{num_w}}"]
+            lines.append("".join(row))
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _sum_fims_aligned(fim_list_with_keys):
+        """Sum per-dataset FIMs over the union of their parameter keys.
+
+        Each input FIM is zero-padded into the combined key space before
+        summation, so datasets with different (or partially overlapping)
+        parameter sets compose correctly. This mirrors what
+        `pipeline._group_and_concat_hists` does at training time when it
+        zero-pads missing keys before concatenating bins.
+
+        Returns (fim_total, all_keys), or (None, []) if the input is empty.
+        """
+        if not fim_list_with_keys:
+            return None, []
+        all_keys = sorted(set().union(*(set(k) for _, k in fim_list_with_keys)))
+        n = len(all_keys)
+        fim_total = jnp.zeros((n, n))
+        for fim, keys in fim_list_with_keys:
+            idx = jnp.array([all_keys.index(k) for k in keys])
+            fim_total = fim_total.at[jnp.ix_(idx, idx)].add(fim)
+        return fim_total, all_keys
+
+    def _build_combined_baseline(self, source_dict):
+        """Sum per-dataset baseline FIMs into a single combined baseline.
+
+        Aligns parameter sets via the union of keys across datasets (same
+        zero-padding logic as the training-time bin concatenation). Returns
+        {"sigmas": ..., "loss": ...} or None if no dataset stored a FIM
+        (true for older result_dicts that pre-date this change).
+        """
+        if not source_dict:
+            return None
+        fims = []
+        for dkey in self.datasets:
+            entry = source_dict.get(dkey)
+            if entry is None or "fim" not in entry:
+                continue
+            fims.append((entry["fim"], entry.get("keys")))
+        if not fims:
+            return None
+        fim_total, all_keys = self._sum_fims_aligned(fims)
+        sig, loss = self._fim_to_loss(fim_total, all_keys)
+        return {"sigmas": sig, "loss": loss}
+
     def validate(self):
         bs = 100_000
-        best_val_key = self.config["training"].get("best_val_key", None)
+
+        # Accumulators for the combined section. We sum FIMs (mathematically
+        # equivalent to concatenating bins, which is how training combines
+        # them). Datasets with mismatched parameter sets are reconciled by
+        # taking the union of keys and zero-padding the missing entries —
+        # the same logic `pipeline._group_and_concat_hists` uses at train
+        # time, so the combined view is well-defined whenever training is.
+        per_dataset_val_fims = []   # list of (fim, keys)
+        per_dataset_train_fims = []
+        blocks = []
 
         for dkey in self.datasets:
             hkey = self.hist_map[dkey]
@@ -432,27 +560,85 @@ class Train(Pipeline):
                 lss_train, train_weights, train_grad_weights, hkey)
             train_sigmas, train_loss_value = self._fim_to_loss(fim_train, keys)
 
-            print(f"Val   loss (hard): {val_loss_value:.6f}  sigmas={val_sigmas}")
-            print(f"Train loss (hard): {train_loss_value:.6f}  sigmas={train_sigmas}")
-
             std_baseline = (self.result_dict["standard_hist_baseline"] or {}).get(dkey)
-            if std_baseline:
-                improvement = {k: std_baseline["sigmas"][k] / val_sigmas[k]
-                               for k in val_sigmas if k in std_baseline["sigmas"]}
-                print(f"Std  loss:         {std_baseline['loss']:.6f}  sigmas={std_baseline['sigmas']}")
-                print(f"Improvement over standard hist: {improvement}")
-
             unbinned = (self.result_dict["unbinned_baseline"] or {}).get(dkey)
-            if unbinned:
-                print(f"Unbinned loss:     {unbinned['loss']:.6f}  sigmas={unbinned['sigmas']}")
+
+            # Build the human-readable block now; print everything together
+            # at the end so the per-dataset tables aren't fragmented across
+            # the inference progress bars.
+            blocks.append(self._format_sigma_block(
+                dkey, val_sigmas, train_sigmas,
+                val_loss_value, train_loss_value,
+                std_baseline, unbinned,
+            ))
+
+            per_dataset_val_fims.append((fim_val, keys))
+            per_dataset_train_fims.append((fim_train, keys))
 
             self.result_dict["val_loss"].append(val_sigmas)
             self.result_dict["val_loss_scalar"].append(float(val_loss_value))
             self.result_dict["train_val_loss_scalar"].append(float(train_loss_value))
 
-            tracked_key = best_val_key if best_val_key in val_sigmas else next(iter(val_sigmas))
-            if val_sigmas[tracked_key] < self.result_dict["best_val_loss"]:
-                self.result_dict["best_val_loss"] = val_sigmas[tracked_key]
+        # --- Combined block (FIMs summed over the union of param keys) ---
+        combined_val_sigmas = None
+        combined_val_loss = float("nan")
+        combined_train_loss = float("nan")
+        combined_block = None
+
+        if per_dataset_val_fims:
+            fim_val_sum, combined_keys = self._sum_fims_aligned(per_dataset_val_fims)
+            fim_train_sum, _ = self._sum_fims_aligned(per_dataset_train_fims)
+            combined_val_sigmas, combined_val_loss = self._fim_to_loss(
+                fim_val_sum, combined_keys)
+            combined_train_sigmas, combined_train_loss = self._fim_to_loss(
+                fim_train_sum, combined_keys)
+
+            # Combined baselines, also union-aligned. Absent from runs that
+            # pre-date storing the FIM in the baseline dict — handled inside
+            # _build_combined_baseline by returning None.
+            combined_std = self._build_combined_baseline(
+                self.result_dict.get("standard_hist_baseline"))
+            combined_unb = self._build_combined_baseline(
+                self.result_dict.get("unbinned_baseline"))
+
+            if len(self.datasets) > 1:
+                combined_block = self._format_sigma_block(
+                    "combined",
+                    combined_val_sigmas, combined_train_sigmas,
+                    combined_val_loss, combined_train_loss,
+                    combined_std, combined_unb,
+                )
+
+        # --- Persist combined scalars (use setdefault for backward compat
+        # with result_dicts loaded from before this change). ---
+        self.result_dict.setdefault("combined_val_loss", []).append(
+            combined_val_sigmas if combined_val_sigmas is not None else {})
+        self.result_dict.setdefault("combined_val_loss_scalar", []).append(
+            float(combined_val_loss))
+        self.result_dict.setdefault("combined_train_val_loss_scalar", []).append(
+            float(combined_train_loss))
+
+        # --- Print everything in one tidy block ---
+        print("\n=== Validation ===")
+        for b in blocks:
+            print(b)
+            print("")
+        if combined_block is not None:
+            print(combined_block)
+            best_so_far = self.result_dict["best_val_loss"]
+            best_str = (f"{float(best_so_far):.6f}"
+                        if best_so_far != jnp.inf else "n/a")
+            print(f"           best so far: {best_str}")
+            print("")
+
+        # --- Best-params tracking: lowest combined val loss wins. ---
+        # With one dataset, "combined" equals that dataset's val loss.
+        # combined_val_sigmas is only None if there were no MC datasets at
+        # all, which would already have skipped the rest of validate().
+        if combined_val_sigmas is not None:
+            candidate = float(combined_val_loss)
+            if candidate < self.result_dict["best_val_loss"]:
+                self.result_dict["best_val_loss"] = candidate
                 self.result_dict["best_params"] = self.state.params
 
         for dkey in self.data_datasets:
