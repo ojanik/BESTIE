@@ -21,7 +21,10 @@ class Dataset():
         self.livetime = hconfig["livetime"]
 
         self.hconfig = hconfig
-        self.calc_sample_weights = sample_weight_handler(self.hconfig)
+        # ``config`` is forwarded so the fisher proposal can pull defaults
+        # (optimality, parameters_to_optimize, ...) from the loss section.
+        # Existing methods ignore the extra context.
+        self.calc_sample_weights = sample_weight_handler(self.hconfig, config=config)
 
         dframe_path = config["datasets"][dkey]["dataframe"]
         df = pd.read_parquet(dframe_path)
@@ -67,7 +70,14 @@ class Dataset():
         self.weights = self.weights[combined_mask]
         self.standard_hist_data = Array(_std_raw[combined_mask]) if _std_raw is not None else None
 
-        self.sample_weights = self.calc_sample_weights(self.input_data)
+        # Pass weights/grad_weights so methods that need them (e.g. the
+        # per-event Fisher proposal) can use them. Other methods accept and
+        # ignore these via **kwargs.
+        self.sample_weights = self.calc_sample_weights(
+            self.input_data,
+            weights=self.weights,
+            grad_weights=self.grad_weights,
+        )
         self.mask = combined_mask
         for k in self.grad_weights:
             self.grad_weights[k] = self.grad_weights[k][valid_mask&self.mask]
