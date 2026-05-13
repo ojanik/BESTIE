@@ -73,10 +73,15 @@ class Dataset():
         # Pass weights/grad_weights so methods that need them (e.g. the
         # per-event Fisher proposal) can use them. Other methods accept and
         # ignore these via **kwargs.
+        # NOTE: self.input_data and self.weights have already been NaN-masked
+        # above, but self.grad_weights is masked further down. Mask it here
+        # at the call site so the per-event arrays line up; the original
+        # masking pass below still applies the same mask to self.grad_weights
+        # in-place, so behaviour for the rest of __init__ is unchanged.
         self.sample_weights = self.calc_sample_weights(
             self.input_data,
             weights=self.weights,
-            grad_weights=self.grad_weights,
+            grad_weights={k: v[combined_mask] for k, v in self.grad_weights.items()},
         )
         self.mask = combined_mask
         for k in self.grad_weights:
