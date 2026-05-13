@@ -74,6 +74,12 @@ def sample_weight_handler(dconfig, config=None):
                                loss_cfg.get("fim_regularization", 1e-3))
         eps = swconfig.get("eps", 1e-12)
 
+        # Per-event FIMs are (N, P, P); materialising all of them at once on
+        # multi-million-event datasets OOMs. Process in chunks and concatenate
+        # the resulting per-event losses. 200k is a comfortable default for
+        # P~10 (≈80 MB chunk in float32); override via config for larger P.
+        chunk_size = swconfig.get("chunk_size", 200_000)
+
         # Forward kwargs for the optimality function. weight_norm defaults to
         # the loss-config value; alpha/beta only matter for M-optimality.
         opti_kwargs = {
@@ -91,6 +97,7 @@ def sample_weight_handler(dconfig, config=None):
             parameters_to_optimize=parameters_to_optimize,
             fim_reg=fim_reg,
             eps=eps,
+            chunk_size=chunk_size,
             opti_kwargs=opti_kwargs,
         )
 
@@ -216,7 +223,8 @@ def _resolve_opti(optimality):
 
 def fisher_sample_weights(data, weights=None, grad_weights=None,
                           optimality="a", parameters_to_optimize=None,
-                          fim_reg=1e-3, eps=1e-12, opti_kwargs=None, **_):
+                          fim_reg=1e-3, eps=1e-12, chunk_size=200_000,
+                          opti_kwargs=None, **_):
     """Per-event Fisher-information based sampling weights.
 
     For each event ``i`` we build a per-event Fisher information matrix from
@@ -263,6 +271,11 @@ def fisher_sample_weights(data, weights=None, grad_weights=None,
         fim_reg: regulariser added to each per-event FIM.
         eps: floor on the per-event loss when inverting (avoids /0 if a
             poorly conditioned event slips through).
+        chunk_size: number of events processed per JIT call. The peak
+            intermediate is (chunk_size, P, P) plus a same-shaped Schur
+            buffer, so for P~10 the default of 200k uses ~150 MB. Lower
+            this if you OOM at the dataset-load step, or raise it if you
+            have headroom and want fewer Python-side iterations.
         opti_kwargs: dict of extra kwargs forwarded to the optimality
             function (weight_norm, alpha, beta).
 
@@ -285,48 +298,59 @@ def fisher_sample_weights(data, weights=None, grad_weights=None,
     # indices line up with the training-time convention.
     keys = sorted(grad_weights.keys())
     P = len(keys)
+    N = len(weights)
 
-    # Per-event score matrix G: shape (N, P)
-    G = jnp.stack([jnp.asarray(grad_weights[k]) for k in keys], axis=1)
-    w = jnp.maximum(jnp.asarray(weights), eps)
-
-    # I_i = g_i g_i^T / w_i + fim_reg * I    -> shape (N, P, P)
-    # Spreading 1/sqrt(w) into G keeps the einsum/vmap symmetric and matches
-    # the unbinned-FIM convention used in train._compute_standard_hist_baseline
-    # (fim = (G/w[:,None]).T @ G, i.e. sum_i g_i g_i^T / w_i).
-    G_scaled = G / jnp.sqrt(w)[:, None]
-    I_per = jnp.einsum('ni,nj->nij', G_scaled, G_scaled)
-    I_per = I_per + fim_reg * jnp.eye(P)
-
-    # Optional Schur complement per event, mirroring fisher_loss. We compute
-    # signal_idx here (Python-side, static) so the per-event function below
-    # vmaps cleanly.
     if parameters_to_optimize is not None:
         signal_idx = [keys.index(p) for p in parameters_to_optimize if p in keys]
     else:
         signal_idx = list(range(P))
     k_sig = len(signal_idx)
+    do_schur = 0 < k_sig < P
 
-    if 0 < k_sig < P:
-        def schur_one(fim):
-            fim_r = rearrange_matrix(fim, signal_idx)
-            A = fim_r[:k_sig, :k_sig]
-            B = fim_r[:k_sig, k_sig:]
-            C = fim_r[k_sig:, k_sig:]
-            return A - B @ jnp.linalg.inv(C) @ B.T
-        I_target = jax.vmap(schur_one)(I_per)
-    else:
-        # All parameters are signal (or none) -> no marginalisation.
-        I_target = I_per
+    # --- inner per-chunk computation (JIT'd) -------------------------------
+    # Inputs: G_chunk (n, P), w_chunk (n,). The (n, P, P) intermediate is
+    # what we want to keep small per chunk — peak memory is dominated by it
+    # and by the C-block inversions inside the Schur complement.
+    def chunk_loss(G_chunk, w_chunk):
+        w_safe = jnp.maximum(w_chunk, eps)
+        Gs = G_chunk / jnp.sqrt(w_safe)[:, None]
+        I_per = jnp.einsum('ni,nj->nij', Gs, Gs) + fim_reg * jnp.eye(P)
 
-    # Per-event optimality loss. opti functions expect a single (k,k) matrix
-    # and return a scalar; vmap over the leading event axis.
-    def loss_one(fim):
-        return opti_fn(fim, **opti_kwargs)
-    losses = jax.vmap(loss_one)(I_target)
+        if do_schur:
+            def schur_one(fim):
+                fim_r = rearrange_matrix(fim, signal_idx)
+                A = fim_r[:k_sig, :k_sig]
+                B = fim_r[:k_sig, k_sig:]
+                C = fim_r[k_sig:, k_sig:]
+                return A - B @ jnp.linalg.inv(C) @ B.T
+            I_target = jax.vmap(schur_one)(I_per)
+        else:
+            I_target = I_per
 
+        return jax.vmap(lambda fim: opti_fn(fim, **opti_kwargs))(I_target)
+
+    chunk_loss_jit = jax.jit(chunk_loss)
+
+    # --- iterate chunks ----------------------------------------------------
+    # Build the score matrix lazily per chunk so we never materialise the
+    # full (N, P) at peak alongside the (n, P, P) intermediate. Using numpy
+    # arrays for the column views avoids an extra device-side allocation.
+    grads_np = {k: onp.asarray(grad_weights[k]) for k in keys}
+    weights_np = onp.asarray(weights)
+
+    losses = onp.empty(N, dtype=onp.float32)
+    for start in range(0, N, chunk_size):
+        stop = min(start + chunk_size, N)
+        G_chunk = jnp.stack(
+            [jnp.asarray(grads_np[k][start:stop]) for k in keys], axis=1,
+        )
+        w_chunk = jnp.asarray(weights_np[start:stop])
+        loss_chunk = chunk_loss_jit(G_chunk, w_chunk)
+        losses[start:stop] = onp.asarray(loss_chunk)
+
+    losses_j = jnp.asarray(losses)
     # Sample weight ∝ 1 / per-event loss. Floor with eps to be safe even
     # though fim_reg already keeps the FIM well-conditioned.
-    inv_loss = 1.0 / (losses + eps)
+    inv_loss = 1.0 / (losses_j + eps)
     sample_weights = inv_loss / jnp.sum(inv_loss)
     return sample_weights
