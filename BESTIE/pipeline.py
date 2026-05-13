@@ -42,13 +42,29 @@ class Pipeline:
 
         Defaults preserve the previous behavior exactly: when `loss.score_head`
         is absent or `enabled` is False, no network or loss path changes.
+
+        Optional decay schedule for the auxiliary loss weight:
+
+            loss:
+              score_head:
+                enabled: true
+                weight: 1.0            # initial weight
+                decay:                  # optional sub-block; absent => constant weight
+                  rate: 0.9             # per-epoch multiplicative decay
+                  epochs: 50            # hard-zero the weight starting at this epoch
+
+        With decay configured, the per-epoch weight is
+            w(epoch) = weight * rate ** epoch        for epoch < decay.epochs
+            w(epoch) = 0                              for epoch >= decay.epochs
         """
         sh_cfg = (config.get("loss", {}) or {}).get("score_head", {}) or {}
         self.score_head_enabled = bool(sh_cfg.get("enabled", False))
 
         if not self.score_head_enabled:
             self.score_params = []
-            self.score_weight = 0.0
+            self.score_weight_initial = 0.0
+            self.score_decay_rate = None
+            self.score_decay_epochs = None
             self.score_eps = 1e-8
             return
 
@@ -63,8 +79,41 @@ class Pipeline:
         # dataset.py). This guarantees a stable column order in the score
         # target tensor.
         self.score_params = sorted(params)
-        self.score_weight = float(sh_cfg.get("weight", 1.0))
+        self.score_weight_initial = float(sh_cfg.get("weight", 1.0))
         self.score_eps = float(sh_cfg.get("eps", 1e-8))
+
+        decay_cfg = sh_cfg.get("decay", {}) or {}
+        rate = decay_cfg.get("rate", None)
+        decay_epochs = decay_cfg.get("epochs", None)
+        if rate is None and decay_epochs is None:
+            # No decay configured — behaviour identical to the previous
+            # constant-weight code path.
+            self.score_decay_rate = None
+            self.score_decay_epochs = None
+        elif rate is None or decay_epochs is None:
+            raise ValueError(
+                "loss.score_head.decay requires BOTH 'rate' and 'epochs' to be set."
+            )
+        else:
+            self.score_decay_rate = float(rate)
+            self.score_decay_epochs = int(decay_epochs)
+
+    def current_score_weight(self, epoch: int) -> float:
+        """Return the auxiliary score-head loss weight for ``epoch``.
+
+        - If the score head is disabled: 0.0 (the aux path is never taken).
+        - If no decay schedule is configured: the constant initial weight.
+        - Otherwise: ``weight * rate ** epoch`` for ``epoch < decay.epochs``,
+          and 0.0 once we reach ``decay.epochs`` (exponential decay snapped to
+          zero at the end of the configured span).
+        """
+        if not self.score_head_enabled:
+            return 0.0
+        if self.score_decay_rate is None:
+            return self.score_weight_initial
+        if epoch >= self.score_decay_epochs:
+            return 0.0
+        return self.score_weight_initial * (self.score_decay_rate ** epoch)
 
         n_params = len(self.score_params)
         hidden = sh_cfg.get("hidden", []) or []
@@ -267,7 +316,15 @@ class Pipeline:
 
     def _set_optimization_pipeline(self, hist_map: dict):
         @partial(jax.jit, static_argnames=["training"])
-        def optimization_pipeline(net_params, data_dict, training=True, drop_out_key=None):
+        def optimization_pipeline(net_params, data_dict, score_weight,
+                                  training=True, drop_out_key=None):
+            """Forward + loss. ``score_weight`` is a runtime JAX scalar that
+            multiplies the auxiliary score-regression loss; the trainer is
+            expected to pass in the current epoch's weight (see
+            ``Pipeline.current_score_weight``). Because it is a runtime arg
+            (not static), updating it between epochs does NOT trigger a
+            recompile.
+            """
             lss_dict, score_dict = self._calc_lss_and_score_dict(
                 net_params, data_dict, hist_map,
                 training=training, drop_out_key=drop_out_key,
@@ -279,10 +336,12 @@ class Pipeline:
 
             if self.score_head_enabled:
                 aux_loss = self._compute_score_loss(score_dict, data_dict)
-                total = jnp.sum(fisher_losses) + self.score_weight * aux_loss
+                total = jnp.sum(fisher_losses) + score_weight * aux_loss
                 # Append aux loss to the per-loss array so it is logged
                 # alongside the existing Fisher / bin losses without changing
-                # the surrounding plumbing.
+                # the surrounding plumbing. The raw aux value (BEFORE the
+                # score_weight multiplier) is logged so the curve is
+                # independent of how the schedule weights it into the total.
                 losses = jnp.concatenate([fisher_losses, jnp.array([aux_loss])])
                 return total, losses
 

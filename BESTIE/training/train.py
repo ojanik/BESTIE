@@ -33,6 +33,11 @@ class Train(Pipeline):
 
         self.config = config
         self.result_dict = None
+        # Epoch counter used to evaluate the auxiliary score-head weight
+        # schedule (``Pipeline.current_score_weight``). Incremented after each
+        # call to ``train_step``. Resuming from a checkpoint that should pick
+        # up mid-schedule needs to set this explicitly before the first step.
+        self.epoch = 0
         self._make_result_dir(name=name)
         self.rng = random.key(config["rng"])
 
@@ -310,18 +315,28 @@ class Train(Pipeline):
         return batch, rng
 
     def build_train_step(self, training):
-        def _compute_loss(params, batch, rng):
-            loss, losses = self._optimization_pipeline(params, batch, drop_out_key=rng)
+        def _compute_loss(params, batch, rng, score_weight):
+            loss, losses = self._optimization_pipeline(
+                params, batch, score_weight, drop_out_key=rng,
+            )
             return loss, losses
 
-        def _train_epoch(state, rng):
-            """Run one full epoch (scanned over batches). Do not call directly — use train_step."""
+        def _train_epoch(state, rng, score_weight):
+            """Run one full epoch (scanned over batches). Do not call directly — use train_step.
+
+            ``score_weight`` is held constant across the batches of one epoch
+            (the schedule advances per-epoch, not per-batch). It's threaded as
+            a runtime JAX scalar so JIT does not retrace when its value
+            changes between epochs.
+            """
             def step_fn(carry, _):
                 state, rng, accum_grads = carry
                 batch, rng = self.get_sample_dict(rng)
                 rng, split_rng = random.split(rng)
+                # grad is taken wrt argument 0 (params) only, so passing
+                # score_weight as an additional non-differentiated arg is safe.
                 (loss, losses), grads = jax.value_and_grad(_compute_loss, has_aux=True)(
-                    state.params, batch, split_rng
+                    state.params, batch, split_rng, score_weight,
                 )
                 if self.config["training"]["average_gradients"]:
                     accum_grads = utilities.jax_utils.add_pytrees(accum_grads, grads)
@@ -347,7 +362,15 @@ class Train(Pipeline):
             print(f"--- Time since last step: {time.time() - self._last_step_end:.2f}s ---")
         start_time = time.time()
         self.rng, _ = random.split(self.rng)
-        self.state, metrics, self.rng = self.train_epoch(self.state, self.rng)
+        # Evaluate the score-head decay schedule for the current epoch. With
+        # the schedule disabled (or the score head off) this is a constant.
+        score_weight = jnp.asarray(self.current_score_weight(self.epoch))
+        if self.score_head_enabled:
+            print(f"--- Score-head weight (epoch {self.epoch}): {float(score_weight):.6g} ---")
+        self.state, metrics, self.rng = self.train_epoch(
+            self.state, self.rng, score_weight,
+        )
+        self.epoch += 1
         print(f"--- Training step took {time.time() - start_time:.2f}s ---")
         start_time = time.time()
         self.log_metric(metrics, validate)
