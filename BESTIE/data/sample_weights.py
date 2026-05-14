@@ -312,6 +312,15 @@ def fisher_sample_weights(data, weights=None, grad_weights=None,
     # what we want to keep small per chunk — peak memory is dominated by it
     # and by the C-block inversions inside the Schur complement.
     def chunk_loss(G_chunk, w_chunk):
+        # Honour the caller's precision setting. jnp.asarray below preserves
+        # the input dtype (typically float32 from the parquet), so even with
+        # jax_enable_x64=True the JIT trace ends up float32 unless we cast.
+        # With x64 off (training default), this .astype is a silent no-op
+        # and behaviour is unchanged; with x64 on (plot/diagnostic scripts),
+        # the per-event FIM inverse runs in float64 and stops NaN-ing on
+        # ill-conditioned events.
+        G_chunk = G_chunk.astype(jnp.float64)
+        w_chunk = w_chunk.astype(jnp.float64)
         w_safe = jnp.maximum(w_chunk, eps)
         Gs = G_chunk / jnp.sqrt(w_safe)[:, None]
         I_per = jnp.einsum('ni,nj->nij', Gs, Gs) + fim_reg * jnp.eye(P)
