@@ -1,11 +1,8 @@
-import jax
 import jax.numpy as jnp
 import numpy as onp
 Array = jnp.array
 from scipy.spatial import KDTree
 from functools import partial
-
-from ..utilities import rearrange_matrix
 
 
 def sample_weight_handler(dconfig, config=None):
@@ -19,19 +16,19 @@ def sample_weight_handler(dconfig, config=None):
                             - "hist", "histogram", "binned": ``number_of_sample_bins``
                             - "knn": ``k``
                             - "fisher", "per_event_fisher":
-                                * ``optimality`` (e.g. "a"), defaults to the
-                                  loss-config optimality if ``config`` is given
-                                * ``parameters_to_optimize`` (list of names),
-                                  defaults to the loss-config list
-                                * ``fim_regularization`` (float, default 1e-3)
+                                * ``parameters_to_optimize`` (list of names) —
+                                  which parameters' per-event FIM diagonal
+                                  elements get summed before inversion.
+                                  Defaults to ``loss.parameters_to_optimize``
+                                  if ``config`` is given. Omitting/empty =
+                                  use all parameters.
                                 * ``eps`` (float, default 1e-12) — floor on
-                                  1/loss to avoid divide-by-zero
-                                * ``weight_norm`` / ``alpha`` / ``beta`` —
-                                  forwarded to the optimality function
-        config  (dict, optional): The full top-level config. Required when
-                        ``method == "fisher"`` so the optimality and
-                        signal-parameter list can be picked up from the
-                        ``loss`` section as defaults.
+                                  the info sum to avoid divide-by-zero.
+                                * ``chunk_size`` (int, default 1_000_000) —
+                                  events processed per inner loop iteration.
+        config  (dict, optional): The full top-level config. Used by
+                        ``method == "fisher"`` to default
+                        ``parameters_to_optimize`` from the ``loss`` section.
 
     Returns:
         Callable: A function ``calc_sample_weights(data, weights=None,
@@ -60,45 +57,23 @@ def sample_weight_handler(dconfig, config=None):
     elif method in {"fisher", "per_event_fisher"}:
         loss_cfg = (config or {}).get("loss", {}) if config is not None else {}
 
-        # Optimality + signal-parameter defaults come from the loss config so
-        # that "use the configured loss" works out of the box; both can be
-        # overridden under ``sample_weights`` if you want the proposal to
-        # optimise something different from the training loss.
-        optimality = swconfig.get("optimality", loss_cfg.get("optimality", "a"))
+        # Which parameters' per-event Fisher information are summed before
+        # inversion. Defaults to the same parameters the training loss
+        # targets (``loss.parameters_to_optimize``) so "use the configured
+        # loss" works out of the box; can be overridden under ``sample_weights``.
         parameters_to_optimize = swconfig.get(
             "parameters_to_optimize",
             loss_cfg.get("parameters_to_optimize", None),
         )
 
-        fim_reg = swconfig.get("fim_regularization",
-                               loss_cfg.get("fim_regularization", 1e-3))
         eps = swconfig.get("eps", 1e-12)
-
-        # Per-event FIMs are (N, P, P); materialising all of them at once on
-        # multi-million-event datasets OOMs. Process in chunks and concatenate
-        # the resulting per-event losses. 200k is a comfortable default for
-        # P~10 (≈80 MB chunk in float32); override via config for larger P.
-        chunk_size = swconfig.get("chunk_size", 200_000)
-
-        # Forward kwargs for the optimality function. weight_norm defaults to
-        # the loss-config value; alpha/beta only matter for M-optimality.
-        opti_kwargs = {
-            "weight_norm": swconfig.get("weight_norm",
-                                        loss_cfg.get("weight_norm", None)),
-        }
-        if "alpha" in swconfig or "alpha" in loss_cfg:
-            opti_kwargs["alpha"] = swconfig.get("alpha", loss_cfg.get("alpha"))
-        if "beta" in swconfig or "beta" in loss_cfg:
-            opti_kwargs["beta"] = swconfig.get("beta", loss_cfg.get("beta"))
+        chunk_size = swconfig.get("chunk_size", 1_000_000)
 
         return partial(
             fisher_sample_weights,
-            optimality=optimality,
             parameters_to_optimize=parameters_to_optimize,
-            fim_reg=fim_reg,
             eps=eps,
             chunk_size=chunk_size,
-            opti_kwargs=opti_kwargs,
         )
 
     else:
@@ -198,86 +173,37 @@ def knn_sample_weights(data, weights=None, grad_weights=None, k=16, **_):
 # Fisher-information-based proposal
 # --------------------------------------------------------------------------- #
 
-def _resolve_opti(optimality):
-    """Map the optimality config string to the function in fisher_losses.
-
-    Mirrors the lookup in losses.loss_handler / training.train._get_opti_fn so
-    the proposal uses the same scalar criterion as the training loss."""
-    o = optimality.lower()
-    if o in {"a", "a_optimality", "aoptimality"}:
-        from ..losses.fisher_losses import A_optimality
-        return A_optimality
-    if o in {"c", "c_optimality", "coptimality", "correlation"}:
-        from ..losses.fisher_losses import C_optimality
-        return C_optimality
-    if o in {"d", "d_optimality", "doptimality", "ellipsoid",
-             "uncertainty_ellipsoid", "ellipsoid_volume",
-             "uncertainty_ellipsoid_volume"}:
-        from ..losses.fisher_losses import D_optimality
-        return D_optimality
-    if o in {"m", "m_optimality", "moptimality", "ac"}:
-        from ..losses.fisher_losses import M_optimality
-        return M_optimality
-    raise NotImplementedError(f"Optimality '{optimality}' not implemented")
-
-
 def fisher_sample_weights(data, weights=None, grad_weights=None,
-                          optimality="a", parameters_to_optimize=None,
-                          fim_reg=1e-3, eps=1e-12, chunk_size=200_000,
-                          opti_kwargs=None, **_):
+                          parameters_to_optimize=None,
+                          eps=1e-12, chunk_size=1_000_000, **_):
     """Per-event Fisher-information based sampling weights.
 
-    For each event ``i`` we build a per-event Fisher information matrix from
-    its score contribution
+    Per-event FIM diagonal for parameter ``k`` is ``g_k^2 / w``. We sum the
+    diagonals over the parameters in ``parameters_to_optimize`` to get a
+    scalar "info content" per event, then take its inverse as the sampling
+    weight (events with smaller selected-parameter info get more sampling
+    probability). The aggregate-FIM estimate is kept unbiased by the
+    importance-sampling reweight inside ``Dataset.get_sampler``.
 
-        I_i = (g_i g_i^T) / w_i + fim_reg * I,
-
-    where ``g_i`` is the per-parameter gradient vector (``grad_weights``) and
-    ``w_i`` the event weight. ``g_i g_i^T`` is rank-1 by construction (outer
-    product of a single vector), so the ``fim_reg * I`` regulariser is
-    required to make ``I_i`` invertible for criteria like A-/D-optimality —
-    same trick used by ``fisher_loss``.
-
-    If ``parameters_to_optimize`` is supplied and is a strict subset of the
-    parameter keys, the Schur complement is taken on each per-event FIM so
-    nuisance parameters are marginalised before the optimality is evaluated.
-    This matches the training-time convention in ``fisher_loss``.
-
-    Sample weight is then ``1 / loss_i`` (normalised to sum to 1): events
-    that are individually most informative under the configured criterion
-    receive higher sampling probability. The downstream importance-sampling
-    correction (``sample_reweights`` in ``Dataset.get_sampler``) keeps the
-    aggregated FIM estimate unbiased.
-
-    Caveats:
-        - Per-event optimality is a per-event *heuristic*. The criterion on
-          the aggregated FIM is non-additive — an individually informative
-          event can still be redundant if other events already cover the
-          same parameter direction. For variance-optimal proposals see the
-          sensitivity formulation (``trace(I_total^-1 I_i)`` and friends).
-        - Effective sample size ``(sum w)^2 / sum w^2`` should be tracked
-          downstream; an aggressive proposal can shrink it below uniform.
+    Notes:
+        - No matrix inversion, no Schur complement, no optimality function —
+          everything is scalar per event, so the routine runs in pure
+          numpy float64 on the host and is immune to the float32 NaN issues
+          that plagued the loss-based variant.
+        - If ``parameters_to_optimize`` is None or empty, all parameters are
+          included in the diagonal sum.
 
     Args:
-        data: (N, D) input array. Used only for the length; the per-event
-            score quantities live in ``grad_weights``.
+        data: (N, D) input array. Only used for the length.
         weights: (N,) per-event MC weights. Required.
         grad_weights: dict {param_name: (N,) array of ∂w/∂θ}. Required.
-        optimality: optimality string, same vocabulary as
-            ``loss.fisher_losses`` (a / c / d / m).
-        parameters_to_optimize: optional list of signal-parameter names; if
-            provided and shorter than ``len(grad_weights)``, Schur complement
-            is applied per event before evaluating the optimality.
-        fim_reg: regulariser added to each per-event FIM.
-        eps: floor on the per-event loss when inverting (avoids /0 if a
-            poorly conditioned event slips through).
-        chunk_size: number of events processed per JIT call. The peak
-            intermediate is (chunk_size, P, P) plus a same-shaped Schur
-            buffer, so for P~10 the default of 200k uses ~150 MB. Lower
-            this if you OOM at the dataset-load step, or raise it if you
-            have headroom and want fewer Python-side iterations.
-        opti_kwargs: dict of extra kwargs forwarded to the optimality
-            function (weight_norm, alpha, beta).
+        parameters_to_optimize: list of parameter names whose per-event FIM
+            diagonal contributions are summed. Defaults to all parameters.
+        eps: floor on |w| and on the info sum to avoid /0.
+        chunk_size: process events in chunks of this many to keep peak
+            memory modest. The per-chunk peak is roughly ``chunk_size *
+            (P_sel + 1) * 8`` bytes — at the default 1M and P_sel ~ a few
+            it's well under 100 MB.
 
     Returns:
         jax.numpy.ndarray: (N,) sample weights, summing to 1.
@@ -291,75 +217,43 @@ def fisher_sample_weights(data, weights=None, grad_weights=None,
             "fisher_sample_weights needs at least one parameter in grad_weights."
         )
 
-    opti_fn = _resolve_opti(optimality)
-    opti_kwargs = dict(opti_kwargs or {})
-
-    # Match the alphabetical sort used in Dataset/Pipeline, so signal/nuisance
-    # indices line up with the training-time convention.
+    # Alphabetical key order matches Dataset/Pipeline / training conventions,
+    # though only the names matter here — we never index into a parameter
+    # vector by position.
     keys = sorted(grad_weights.keys())
-    P = len(keys)
     N = len(weights)
 
-    if parameters_to_optimize is not None:
-        signal_idx = [keys.index(p) for p in parameters_to_optimize if p in keys]
+    if parameters_to_optimize:
+        selected = [k for k in parameters_to_optimize if k in keys]
+        if not selected:
+            raise ValueError(
+                "None of the requested parameters_to_optimize "
+                f"{parameters_to_optimize} are present in grad_weights "
+                f"(have: {keys})."
+            )
     else:
-        signal_idx = list(range(P))
-    k_sig = len(signal_idx)
-    do_schur = 0 < k_sig < P
+        selected = list(keys)
 
-    # --- inner per-chunk computation (JIT'd) -------------------------------
-    # Inputs: G_chunk (n, P), w_chunk (n,). The (n, P, P) intermediate is
-    # what we want to keep small per chunk — peak memory is dominated by it
-    # and by the C-block inversions inside the Schur complement.
-    def chunk_loss(G_chunk, w_chunk):
-        # Honour the caller's precision setting. jnp.asarray below preserves
-        # the input dtype (typically float32 from the parquet), so even with
-        # jax_enable_x64=True the JIT trace ends up float32 unless we cast.
-        # With x64 off (training default), this .astype is a silent no-op
-        # and behaviour is unchanged; with x64 on (plot/diagnostic scripts),
-        # the per-event FIM inverse runs in float64 and stops NaN-ing on
-        # ill-conditioned events.
-        G_chunk = G_chunk.astype(jnp.float64)
-        w_chunk = w_chunk.astype(jnp.float64)
-        w_safe = jnp.maximum(w_chunk, eps)
-        Gs = G_chunk / jnp.sqrt(w_safe)[:, None]
-        I_per = jnp.einsum('ni,nj->nij', Gs, Gs) + fim_reg * jnp.eye(P)
+    weights_np = onp.asarray(weights, dtype=onp.float64)
+    # Take views per parameter rather than stacking — we only need the
+    # selected ones, and the full (N, P) stack is unnecessary memory.
+    grads_np = {k: onp.asarray(grad_weights[k], dtype=onp.float64)
+                for k in selected}
 
-        if do_schur:
-            def schur_one(fim):
-                fim_r = rearrange_matrix(fim, signal_idx)
-                A = fim_r[:k_sig, :k_sig]
-                B = fim_r[:k_sig, k_sig:]
-                C = fim_r[k_sig:, k_sig:]
-                return A - B @ jnp.linalg.inv(C) @ B.T
-            I_target = jax.vmap(schur_one)(I_per)
-        else:
-            I_target = I_per
-
-        return jax.vmap(lambda fim: opti_fn(fim, **opti_kwargs))(I_target)
-
-    chunk_loss_jit = jax.jit(chunk_loss)
-
-    # --- iterate chunks ----------------------------------------------------
-    # Build the score matrix lazily per chunk so we never materialise the
-    # full (N, P) at peak alongside the (n, P, P) intermediate. Using numpy
-    # arrays for the column views avoids an extra device-side allocation.
-    grads_np = {k: onp.asarray(grad_weights[k]) for k in keys}
-    weights_np = onp.asarray(weights)
-
-    losses = onp.empty(N, dtype=onp.float32)
+    info = onp.empty(N, dtype=onp.float64)
     for start in range(0, N, chunk_size):
         stop = min(start + chunk_size, N)
-        G_chunk = jnp.stack(
-            [jnp.asarray(grads_np[k][start:stop]) for k in keys], axis=1,
-        )
-        w_chunk = jnp.asarray(weights_np[start:stop])
-        loss_chunk = chunk_loss_jit(G_chunk, w_chunk)
-        losses[start:stop] = onp.asarray(loss_chunk)
+        w_safe = onp.maximum(weights_np[start:stop], eps)
+        s = onp.zeros(stop - start, dtype=onp.float64)
+        for k in selected:
+            g_k = grads_np[k][start:stop]
+            s += (g_k * g_k) / w_safe
+        info[start:stop] = s
 
-    losses_j = jnp.asarray(losses)
-    # Sample weight ∝ 1 / per-event loss. Floor with eps to be safe even
-    # though fim_reg already keeps the FIM well-conditioned.
-    inv_loss = 1.0 / (losses_j + eps)
-    sample_weights = inv_loss / jnp.sum(inv_loss)
-    return sample_weights
+    # Sample weight ∝ 1 / per-event info. NaNs (shouldn't happen, but if
+    # any grad column has them) are treated as zero info => upweighted; if
+    # that's the wrong behaviour for your data, fix the NaNs upstream.
+    info = onp.where(onp.isnan(info), 0.0, info)
+    inv = 1.0 / (info + eps)
+    sample_weights = inv / inv.sum()
+    return jnp.asarray(sample_weights)
